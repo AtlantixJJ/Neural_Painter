@@ -47,7 +47,7 @@ tf.app.flags.DEFINE_boolean("use_cache", False, "If to use cache to prevent cact
 tf.app.flags.DEFINE_integer("gpu", 4, "which gpu to use")
 tf.app.flags.DEFINE_float("g_lr", 1e-4, "learning rate")
 tf.app.flags.DEFINE_float("d_lr", 4e-4, "learning rate")
-tf.app.flags.DEFINE_integer("batch_size", 128, "training batch size")
+tf.app.flags.DEFINE_integer("batch_size", 64, "training batch size")
 tf.app.flags.DEFINE_integer("num_iter", 200000, "training iteration")
 tf.app.flags.DEFINE_integer("dec_iter", 100000, "training iteration")
 tf.app.flags.DEFINE_integer("disc_iter", 3, "discriminator training iter")
@@ -86,8 +86,8 @@ def main():
             img_size=(size, size),
             shuffle=True)
 
-    dl = DataLoader(dataset, batch_size=FLAGS.batch_size, shuffle=True, num_workers=NUM_WORKER)
-
+    dl = dataloader.TFDataloader(dataset, FLAGS.batch_size, dataset.file_num // FLAGS.batch_size)
+    
     # TF Input
     x_fake_sample = tf.placeholder(tf.float32, [None, size, size, 3], name="x_fake_sample")
     x_real = tf.placeholder(tf.float32, [None, size, size, 3], name="x_real")

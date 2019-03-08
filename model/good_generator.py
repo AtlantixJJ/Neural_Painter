@@ -59,7 +59,7 @@ class GoodGenerator(SimpleConvolutionGenerator):
         #output = ops.get_norm(output, "fc1/"+self.norm_mtd, self.training, self.reuse)
         
 
-        for i in range(self.n_layers):
+        for i in range(self.n_layer):
             output = ops.residual_block(name="Res%d" % (i+1),
                 input=output,
                 output_dim=self.map_depth,
@@ -103,13 +103,13 @@ class GoodGenerator(SimpleConvolutionGenerator):
 
 class GoodDiscriminator(SimpleConvolutionDiscriminator):
     """
-    n_layers == n_blocks
+    n_layer == n_blocks
     """
     def __init__(self, n_res=2, **kwargs):
         super(GoodDiscriminator, self).__init__(**kwargs)
 
         self.n_res = n_res
-        self.n_blocks = self.n_layers
+        self.n_blocks = self.n_layer
 
     def build_inference(self, input, scope=None):
         x = input

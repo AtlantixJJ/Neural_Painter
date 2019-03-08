@@ -28,12 +28,12 @@ class SimpleConditionalGenerator(basic.SequentialNN):
             x = L.fully_connected(x, self.map_depth * self.map_size ** 2, normalizer_fn=L.batch_norm)
         x = tf.reshape(x, [-1, self.map_size, self.map_size, self.map_depth])
 
-        for i in range(1, self.n_layers + 1, 1):
+        for i in range(1, self.n_layer + 1, 1):
             with tf.variable_scope("deconv%d" % i):
                 x = L.conv2d_transpose(x, int(self.map_depth / (2 ** i)), 3, 2, normalizer_fn=L.batch_norm,
                     weights_regularizer=L.l2_regularizer(self.lambda_l2))
 
-        with tf.variable_scope("deconv%d" % (self.n_layers + 1)):
+        with tf.variable_scope("deconv%d" % (self.n_layer + 1)):
             x = L.conv2d_transpose(x, self.out_dim, 1, 1, activation_fn=None,
                 weights_regularizer=L.l2_regularizer(self.lambda_l2))
 
@@ -73,9 +73,9 @@ class SimpleConditionalDiscriminator(basic.SequentialNN):
 
     def build_inference(self, input):
         x = input
-        for i in range(1, self.n_layers+1, 1):
-            with tf.variable_scope("conv%d" % (self.n_layers - i), reuse=self.reuse):
-                x = L.conv2d(x, self.map_depth / (2 ** (self.n_layers - i) ), 3, 2,
+        for i in range(1, self.n_layer+1, 1):
+            with tf.variable_scope("conv%d" % (self.n_layer - i), reuse=self.reuse):
+                x = L.conv2d(x, self.map_depth / (2 ** (self.n_layer - i) ), 3, 2,
                     normalizer_fn=L.batch_norm,
                     weights_regularizer=L.l2_regularizer(self.lambda_l2),
                     activation_fn=ops.LeakyReLU)
@@ -83,14 +83,14 @@ class SimpleConditionalDiscriminator(basic.SequentialNN):
         # now x is 4x4
         x = tf.reshape(x, [-1, self.map_size * self.map_size * self.map_depth])
 
-        with tf.variable_scope("fc_disc%d" % (self.n_layers + 1), reuse=self.reuse):
+        with tf.variable_scope("fc_disc%d" % (self.n_layer + 1), reuse=self.reuse):
             if self.is_wgan:
                 self.disc_out = L.fully_connected(x, 1, activation_fn=None, weights_regularizer=L.l2_regularizer(self.lambda_l2))
             else:
                 self.disc_out = L.fully_connected(x, 1, activation_fn=tf.nn.sigmoid, weights_regularizer=L.l2_regularizer(self.lambda_l2))
         
         # ADD for classification
-        with tf.variable_scope("fc_cls%d" % (self.n_layers + 1), reuse=self.reuse):
+        with tf.variable_scope("fc_cls%d" % (self.n_layer + 1), reuse=self.reuse):
             self.disc_cls = L.fully_connected(x, self.c_len, activation_fn=tf.nn.sigmoid, weights_regularizer=L.l2_regularizer(self.lambda_l2))
         return self.disc_out, self.disc_cls
 
@@ -192,7 +192,7 @@ class ImageConditionalDiscriminator(basic.SequentialNN):
 
         ndf = 32
         ksize = 4
-        n_layers = 3
+        n_layer = 3
         depth = [ndf * 2, ndf * 4, ndf * 8]
         self.norm_mtd = ""
 
@@ -203,7 +203,7 @@ class ImageConditionalDiscriminator(basic.SequentialNN):
         x = ops.LeakyReLU(x)
         print(x.get_shape())
 
-        for i in range(n_layers):
+        for i in range(n_layer):
             name = "conv%d" % (i + 2)
             x = L.conv2d(x, depth[i], ksize, 2, padding='SAME', scope=name, reuse=self.reuse, activation_fn=None)
             x = ops.get_norm(x, name + "/" + self.norm_mtd, self.training, self.reuse)
@@ -280,7 +280,7 @@ class ImageConditionalDeepDiscriminator(ImageConditionalDiscriminator):
 class ImageConditionalGenerator(basic.SequentialNN):
     """
     Simulate a style transfer network.
-    n_layers : no. of residual blocks recommend to be 3
+    n_layer : no. of residual blocks recommend to be 3
     """
     def __init__(self, **kwargs):
         super(ImageConditionalGenerator, self).__init__(**kwargs)
@@ -373,7 +373,7 @@ class ImageConditionalGenerator(basic.SequentialNN):
 class ImageConditionalEncoder(basic.SequentialNN):
     """
     Simulate a style transfer network.
-    n_layers : no. of residual blocks recommend to be 3
+    n_layer : no. of residual blocks recommend to be 3
     """
     def __init__(self, **kwargs):
         super(ImageConditionalEncoder, self).__init__(**kwargs)
@@ -571,7 +571,7 @@ class ImageConditionalEncoder(basic.SequentialNN):
 class ImageConditionalDeepGenerator2(basic.SequentialNN):
     """
     Simulate a style transfer network.
-    n_layers : no. of residual blocks recommend to be 3
+    n_layer : no. of residual blocks recommend to be 3
     """
     def __init__(self, **kwargs):
         super(ImageConditionalDeepGenerator2, self).__init__(**kwargs)
@@ -736,7 +736,7 @@ class ImageConditionalDeepGenerator2(basic.SequentialNN):
 class ImageConditionalDeepGenerator(basic.SequentialNN):
     """
     Simulate a style transfer network.
-    n_layers : no. of residual blocks recommend to be 3
+    n_layer : no. of residual blocks recommend to be 3
     """
     def __init__(self, **kwargs):
         super(ImageConditionalDeepGenerator, self).__init__(**kwargs)

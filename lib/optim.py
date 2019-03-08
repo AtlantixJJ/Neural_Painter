@@ -15,41 +15,60 @@ from lib import files, utils, dataloader, ops
 from skimage import io, transform
 
 class PictureOptimizer(object):
-    def __init__(self, CONFIG):
-        self.CONFIG = CONFIG
-        self.model_dir = CONFIG['model_dir'] + CONFIG['model_name'] + CONFIG['sery']
-        self.using_cgan = CONFIG['cgan']
+    def __init__(self, CONFIG, sess):
+        self.sess = sess
 
+        # The computation accuracy and the function domain
+        self.EPS = 1e-6
+        self.RANGE = np.arctanh(1 - self.EPS / 3.0)
+
+        self.CONFIG = CONFIG
+        self.lr_z = CONFIG['lr_z']
+        self.lr_c = CONFIG['lr_c']
+
+        # determine gen & disc model path
+        if len(CONFIG["sery"]) > 0:
+            self.disc_dir = CONFIG['model_dir'] + ( "gen_%s.npz" % CONFIG["sery"]) 
+            self.gen_dir  = CONFIG['model_dir'] + ("disc_%s.npz" % CONFIG["sery"]) 
+        else:
+            self.disc_dir = CONFIG['model_dir'] +  "gen.npz" 
+            self.gen_dir  = CONFIG['model_dir'] + "disc.npz" 
+
+        self.using_cgan = CONFIG['cgan']
+        
+        # default model class:
         # model_class = model.simple_generator.SimpleConvolutionGenerator
         model_class = getattr(getattr(model, CONFIG['model_class']), CONFIG['gen_model'])
-        self.gen_model = model_class(**CONFIG['gen_config'])
+        gen_config = CONFIG['gen_config']
+        self.gen_model = model_class(**gen_config)
         model_class = getattr(getattr(model, CONFIG['model_class']), CONFIG['disc_model'])
-        self.disc_model = model_class(**CONFIG['disc_config'])
+        disc_config = CONFIG['disc_config']
+        self.disc_model = model_class(**disc_config)
 
         # the output image size
-        self.size = (2 ** CONFIG['n_layers']) * CONFIG['map_size']
-        self.input_dim = CONFIG['gen_config']['out_dim']
-        self.n_attrs = CONFIG['disc_config']['n_attrs']
+        self.size = (2 ** gen_config['n_layer']) * gen_config['map_size']
+        self.input_dim = gen_config['out_dim']
+        self.n_attrs = disc_config['n_attr']
         self.output_shape = [self.size, self.size, self.input_dim]
-        self.delta =  1. - (1. / (1. + np.exp(-5.)) - 1. / (1. + np.exp(5.)))
 
         # init
-        self.config = tf.ConfigProto()
-        self.config.gpu_options.allow_growth = True
-        self.sess = tf.InteractiveSession(config=self.config)
         self.load_model()
         self.build_graph()
+        
         print("=> init over")
 
     def load_model(self):
+        # [-5, +5]
         self.raw_z_noise = tf.placeholder(tf.float32, [None, 128], name="z_noise")
-        self.z_noise = tf.tanh(self.raw_noise)
+        # We assume noise to be in a gaussian distribution with sigma=1
+        # Most of the probability density focus in 3 sigma region
+        self.z_noise = tf.tanh(self.raw_z_noise) * 3
         self.x_real = tf.placeholder(tf.float32, [None] + self.output_shape, name="x_real")
         self.fake_sample = tf.placeholder(tf.float32, [None] + self.output_shape, name="fake_sample")
         
         if self.using_cgan:
             self.raw_c_noise = tf.placeholder(tf.float32, [None, self.n_attrs], name="z_noise")
-            self.c_noise = tf.sigmoid(self.raw_noise)
+            self.c_noise = tf.sigmoid(self.raw_c_noise)
             self.c_label = tf.placeholder(tf.float32, [None, self.n_attrs], name="c_label")
             
             self.x_fake = self.gen_model([self.z_noise, self.c_noise])
@@ -58,8 +77,8 @@ class PictureOptimizer(object):
 
         # build model
         self.disc_fake = self.disc_model(self.fake_sample)[0]
-        self.gen_model.load_from_npz(self.model_dir + "gen.npz", self.sess)
-        self.disc_model.load_from_npz(self.model_dir + "disc.npz", self.sess)
+        self.gen_model.load_from_npz(self.gen_dir, self.sess)
+        self.disc_model.load_from_npz(self.disc_dir, self.sess)
 
         self.c_noise_fixed = False
 
@@ -84,49 +103,62 @@ class PictureOptimizer(object):
 
     def build_graph(self):
         print("=> building graph")
+        # output in [0, 255] scale
         out_255 = (self.gen_output + 1.) * 127.5
         x = tf.multiply((out_255 - self.sketch), self.mask)
+        # all the difference in a batch
+        self.mse_loss = tf.reduce_sum(tf.abs(x)) / (tf.reduce_sum(self.mask) + 1.0)
+        # loss of each instance
         self.mse_batch = tf.reduce_sum(tf.abs(x), axis=[1, 2, 3]) / (tf.reduce_sum(self.mask, axis=[1, 2, 3]) + 1.)
-        self.mse_loss = tf.reduce_sum(tf.abs(self.x)) / (tf.reduce_sum(self.mask) + 1e-6)
-
+        
         self.gz = tf.gradients(self.mse_loss, [self.raw_z_noise])[0]
         if self.using_cgan:
             self.gc = tf.gradients(self.mse_loss, [self.raw_c_noise])[0]
 
     def get_c_noise(self):
-        if self.using_cgan == False:
-            return
-        # raw c noise is in [-2, 2]
-        self.origin_raw_c = ops.random_boolean((1, self.n_attrs), if_getchu=True) * 4 - 2
+        if self.using_cgan == False:return
+        # raw c noise is gaussian
+        self.origin_raw_c = ops.get_random("normal", (1, self.n_attrs))
 
     def change_c_noise(self, lr):
-        if self.using_cgan  == True:
-            self.origin_raw_c += -lr * self.gradc[0]
-            gradc_std = np.std(self.gradc[0])
-            self.origin_c_noise = self.sigmoid_arc(self.arc_origin_c_noise)
-            print("=> Grad magnitude: [%.4f, %.4f]" % (self.gradc[0].min(), self.gradc[0].max()))
+        if self.using_cgan  == False: return
+        self.origin_raw_c += -lr * self.gradc[0]
+        # use eagar execution here, because np does not have sigmoid function
+        noise_c = tf.sigmoid(self.origin_raw_c)
+        print("=> Grad c max=%.4f, min=%.4f, norm=%.4f]" % (
+            self.gradc[0].max(),
+            self.gradc[0].min(),
+            np.linalg.norm(self.gradc[0], 2)))
+        print("=> c vector: max=%.4f, min=%.4f, norm=%.4f" % (
+            noise_c.max(), noise_c.min(), np.linalg.norm(noise_c, 2)))
 
     def get_z_noise(self):
-        # origin raw z noise: [-2, 2]
-        self.origin_raw_z = np.random.rand((1, 128)) * 4 - 2
+        # origin raw z noise: guassian with 3 sigma
+        self.origin_raw_z = ops.get_random("gaussian", (1, 128)) * 3
 
     def change_z_noise(self, lr):
         self.origin_raw_z += -lr * self.gradz[0]
-        print("=> Grad magnitude: [%.4f, %.4f]" % (self.gradz[0].min(), self.gradz[0].max()))
+        noise_z = np.tanh(self.origin_raw_z)
+        print("=> Grad z max=%.4f, min=%.4f, norm=%.4f]" % (
+            self.gradz[0].max(),
+            self.gradz[0].min(),
+            np.linalg.norm(self.gradz[0], 2)))
+        print("=> z vector: max=%.4f, min=%.4f, norm=%.4f" % (
+            noise_z.max(), noise_z.min(), np.linalg.norm(noise_z, 2)))
 
     def get_noise(self):
         self.get_z_noise()
         self.get_c_noise()
 
-    def change_noise(self, lr_z, lr_c):
-        self.change_z_noise(lr_z)
-        self.change_c_noise(lr_c)
+    def change_noise(self):
+        self.change_z_noise(self.lr_z)
+        self.change_c_noise(self.lr_c)
 
-    def get_noise_batch(self, raw_z, lr, grad):
+    def get_noise_batch(self, raw_z, grad):
         print("=> noise: [%f, %f]" % (raw_z.min(), raw_z.max()))
         grad_std = np.std(grad)
 
-        noise_list = [raw_z - lr * grad]
+        noise_list = [raw_z - self.lr_z * grad]
 
         for i in range(3):
             noise_list.append(raw_z - (2 ** (i+1) ) * lr * grad)
@@ -138,11 +170,11 @@ class PictureOptimizer(object):
         noise_list = np.minimum(noise_list, 5)
         return noise_list
 
-    def change_noise_batch(self, lr_z, lr_c):
-        new_z_list = self.get_noise_batch(self.origin_raw_z, lr_z, self.gradz[0])
+    def change_noise_batch(self):
+        new_z_list = self.get_noise_batch(self.origin_raw_z, self.lr_z, self.gradz[0])
         self.feed.update({self.raw_z_noise: new_z_list})
         if self.using_cgan:
-            new_c_list = self.get_noise_batch(self.origin_raw_c, lr_c, self.gradc[0])
+            new_c_list = self.get_noise_batch(self.origin_raw_c, self.lr_c, self.gradc[0])
             self.feed.update({self.raw_c_noise : new_c_list})
         
         self.output = self.sess.run(self.gen_output, self.feed)
@@ -211,7 +243,7 @@ class PictureOptimizer(object):
         else:
             self.loss_, self.gradz = self.sess.run([self.mse_loss, self.gz], self.feed_gradient)
 
-    def generate(self, sketch_img, mask_img, raw_z, raw_c=[], file_lr_path = "learning_rate.txt"):
+    def generate(self, sketch_img, mask_img, raw_z, raw_c=[], file_lr_path="learning_rate.txt"):
         print("=> loading sketch and mask")
         sketch_img = transform.resize(sketch_img, (128, 128))[:, :, :3]
         mask_img = transform.resize(mask_img, (128, 128))[:, :, :3]
@@ -225,33 +257,24 @@ class PictureOptimizer(object):
         if mask_img.max() > 1.1:
             mask_img = mask_img / 255.
 
-        print("=> Sketch: [%f, %f]" % (sketch_img.min(), sketch_img.max()))
-        print("=> Mask: [%f, %f]" % (mask_img.min(), mask_img.max()))
-
         self.origin_raw_z = raw_z
         self.origin_raw_c = raw_c
-
-        with open(file_lr_path) as f:
-            lr_z, lr_c = f.read().split('\n')
-            lr_z = float(lr_z)
-            lr_c = float(lr_c)
-        print("=> lr_z: %f\t\tlr_c: %f" % (lr_z, lr_c))
 
         time_start = time.time()
         
         self.get_gradient(sketch_img, mask_img)
         self.save_variables()
-        self.change_noise_batch(lr_z, lr_c)
+        self.change_noise_batch()
 
-        time_end=time.time()
+        time_end = time.time()
 
         print("=> loss: %f" % self.loss_)
-        print("=> Changed picture.  Time:"+(str)(time_end - time_start) + "s")
+        print("=> Editing image: " + (str)(time_end - time_start) + "s")
 
         if self.using_cgan == True:
-            return self.output, self.origin_z_noise, self.arc_origin_c_noise
+            return self.output, self.origin_raw_z, self.origin_raw_c
         else:
-            return self.output, self.origin_z_noise, []
+            return self.output, self.origin_raw_z, []
 
     def generate_origin(self):
         time_start = time.time()
@@ -260,19 +283,25 @@ class PictureOptimizer(object):
             if self.get_output() == True:
                 break
         time_end=time.time()
-        print ("Generated origin picture.  Time:"+(str)(time_end - time_start) + "s")
+        print ("=> Generated origin image: " + (str)(time_end - time_start) + "s")
         if self.using_cgan == True:
-            return self.output, self.origin_z_noise, self.arc_origin_c_noise
+            return self.output, self.origin_raw_z, self.origin_raw_c
         else:
-            return self.output, self.origin_z_noise, []
+            return self.output, self.origin_raw_z, []
 
 class PictureOptimizerS(object):
-    def __init__(self):
+    def __init__(self, CONFIG):
+        os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
+        os.environ["CUDA_VISIBLE_DEVICES"] = CONFIG['gpu']
+
+        tf.enable_eager_execution()
+        config = tf.ConfigProto()
+        config.gpu_options.allow_growth = True
+        sess = tf.InteractiveSession(config=config)
+
         self.optimizers = []
-    
-    def create_new_optimizer(self, CONFIG):
-        new_optimizer = PictureOptimizer(CONFIG)
-        self.optimizers.append(new_optimizer)
+        for model_config in CONFIG['models'].values():
+            self.optimizers.append(PictureOptimizer(model_config, sess))
     
     def generate(self, CONFIG, sketch, mask, z, c, file_lr_path):
         for optimizer in self.optimizers:
@@ -283,3 +312,12 @@ class PictureOptimizerS(object):
         for optimizer in self.optimizers:
             if optimizer.CONFIG == CONFIG:
                 return optimizer.generate_origin()
+
+if __name__ == "__main__":
+    # test
+    import json
+    CONFIG = {}
+    with open("nim_server/config2.json", "r") as f:
+        CONFIG = json.load(f)
+
+    optimizer = PictureOptimizerS(CONFIG)

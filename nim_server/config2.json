@@ -1,9 +1,11 @@
 {
     "display_size": 256,
-    "gpu": "3",
+    "gpu": "",
     "userdata_dir": "userdata",
     "models": {
         "Anime Face": {
+            "lr_z": 0.1,
+            "lr_c": 0.1,
             "model_class": "simple_generator",
             "gen_model": "SimpleConvolutionGenerator",
             "gen_config": {
@@ -11,21 +13,21 @@
                 "out_dim": 3,
                 "map_size": 4,
                 "map_depth": 1024,
-                "n_layers": 5,
-                "norm_mtd": "contrib"
+                "n_layer": 5,
+                "norm_mtd": "default",
+                "spectral_norm": true
             },
             "disc_model": "SimpleConvolutionDiscriminator",
             "disc_config": {
                 "name": "D",
-                "map_size": 4,
                 "map_depth": 1024,
-                "n_layers": 5,
-                "n_attrs": 34,
-                "norm_mtd": "group"
+                "n_layer": 5,
+                "n_attr": 34,
+                "norm_mtd": "none"
             },
-            "sery": "",
+            "sery": "06",
             "field_name": "GGAnimeFace",
-            "model_dir": "../success/",
+            "model_dir": "~disk6/FewShotLearning/Neural_Painter/logs/simple_getchu",
             "cgan": true
         }
     }

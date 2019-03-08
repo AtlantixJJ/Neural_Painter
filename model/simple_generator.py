@@ -7,12 +7,12 @@ from model import basic
 import numpy as np
 
 class SimpleConvolutionGenerator(basic.SequentialNN):
-    def __init__(self, map_size=4, map_depth=1024, n_layers=5, out_dim=3, spectral_norm=True, **kwargs):
+    def __init__(self, map_size=4, map_depth=1024, n_layer=5, out_dim=3, spectral_norm=True, **kwargs):
         """
         params:
         map_size:   the edge size of noise map
         map_depth:  initial depth of first feature map
-        n_layers:   every one more convolution layer indicates a double in resolution
+        n_layer:   every one more convolution layer indicates a double in resolution
         """
         super(SimpleConvolutionGenerator, self).__init__(**kwargs)
         
@@ -20,7 +20,7 @@ class SimpleConvolutionGenerator(basic.SequentialNN):
         self.out_dim = out_dim
         self.map_size = map_size
         self.map_depth = map_depth
-        self.n_layers = n_layers
+        self.n_layer = n_layer
         self.cbn_project = False
 
     def build_inference(self, input, update_collection="no_ops"):
@@ -33,7 +33,7 @@ class SimpleConvolutionGenerator(basic.SequentialNN):
         x = layers.conditional_batch_normalization("cbn", x, input, self.cbn_project, self.reuse)
         x = tf.nn.relu(x)
 
-        for i in range(1, self.n_layers + 1, 1):
+        for i in range(1, self.n_layer + 1, 1):
             name = "deconv%d" % i
             x = layers.deconv2d(name, x, int(self.map_depth // (2 ** i)), 4, 2,
                 self.spectral_norm, update_collection, self.reuse)
@@ -48,12 +48,12 @@ class SimpleConvolutionGenerator(basic.SequentialNN):
 
 ### [WARNING]: This is not adapted to new API
 class MaskConvolutionGenerator(basic.SequentialNN):
-    def __init__(self, mask_num=4, map_size=4, map_depth=1024, n_layers=5, out_dim=3, **kwargs):
+    def __init__(self, mask_num=4, map_size=4, map_depth=1024, n_layer=5, out_dim=3, **kwargs):
         """
         params:
         map_size:   the edge size of noise map
         map_depth:  initial depth of first feature map
-        n_layers:   every one more convolution layer indicates a double in resolution
+        n_layer:   every one more convolution layer indicates a double in resolution
         """
         super(MaskConvolutionGenerator, self).__init__(**kwargs)
 
@@ -61,7 +61,7 @@ class MaskConvolutionGenerator(basic.SequentialNN):
         self.out_dim = out_dim
         self.map_size = map_size
         self.map_depth = map_depth
-        self.n_layers = n_layers
+        self.n_layer = n_layer
         self.cbn_project = False
 
     def build_inference(self, input, update_collection="no_ops"):
@@ -76,7 +76,7 @@ class MaskConvolutionGenerator(basic.SequentialNN):
         x = ops.conditional_batch_normalization("cbn", x, input, self.cbn_project, self.reuse)
         x = tf.nn.relu(x)
 
-        self.mid_layers = (self.n_layers + 1) // 2
+        self.mid_layers = (self.n_layer + 1) // 2
 
         for i in range(1, self.mid_layers):
             name = "main_deconv%d" % i
@@ -87,14 +87,14 @@ class MaskConvolutionGenerator(basic.SequentialNN):
 
         mask_x = tf.identity(x)
 
-        for i in range(self.mid_layers, self.n_layers + 1):
+        for i in range(self.mid_layers, self.n_layer + 1):
             name = "draw_deconv%d" % i
             x = ops.spectral_deconv2d(name, x, int(self.map_depth // (2 ** i)), 4, 2,
                 reuse=self.reuse, update_collection=update_collection)
             x = ops.conditional_batch_normalization(name + "/cbn", x, input, self.cbn_project, self.reuse)
             x = tf.nn.relu(x)
 
-        for i in range(self.mid_layers, self.n_layers + 1):
+        for i in range(self.mid_layers, self.n_layer + 1):
             name = "mask_deconv%d" % i
             mask_x = ops.spectral_deconv2d(name, mask_x, int(self.map_depth // (2 ** i)), 4, 2,
                 reuse=self.reuse, update_collection=update_collection)
@@ -132,41 +132,41 @@ class MaskConvolutionGenerator(basic.SequentialNN):
         return self.out
 
 class SimpleConvolutionDiscriminator(basic.SequentialNN):
-    def __init__(self, n_layers=5, n_attr=34, map_depth=1024, spectral_norm=True, **kwargs):
+    def __init__(self, n_layer=5, n_attr=34, map_depth=1024, spectral_norm=True, **kwargs):
         super(SimpleConvolutionDiscriminator, self).__init__(**kwargs)
 
         self.spectral_norm = spectral_norm
         self.map_depth = map_depth
-        self.n_layers = n_layers
+        self.n_layer = n_layer
         self.n_attr = n_attr
 
     def build_inference(self, input, update_collection="no_ops"):
-        x = layers.conv2d("conv1", input, self.map_depth // (2 ** self.n_layers), 5, 1,
+        x = layers.conv2d("conv1", input, self.map_depth // (2 ** self.n_layer), 5, 1,
                     self.spectral_norm, update_collection, self.reuse)
         x = layers.LeakyReLU(x)
 
-        self.mid_layers = self.n_layers // 2
+        self.mid_layers = self.n_layer // 2
 
         for i in range(self.mid_layers):
             x = layers.conv2d("main_conv%d" % (i+2), x,
-                self.map_depth // (2 ** (self.n_layers - i - 1)), 4, 2,
+                self.map_depth // (2 ** (self.n_layer - i - 1)), 4, 2,
                 self.spectral_norm, update_collection, self.reuse)
             x = layers.LeakyReLU(x)
 
         class_branch = tf.identity(x)
 
-        for i in range(self.mid_layers, self.n_layers):
+        for i in range(self.mid_layers, self.n_layer):
             x = layers.conv2d("disc_conv%d" % (i+2), x,
-                self.map_depth // (2 ** (self.n_layers - i - 1)), 4, 2,
+                self.map_depth // (2 ** (self.n_layer - i - 1)), 4, 2,
                 self.spectral_norm, update_collection, self.reuse)
             x = layers.LeakyReLU(x)
         
         # discrimination branch
         x = layers.learned_sum("ls_disc", x, self.reuse)
 
-        for i in range(self.mid_layers, self.n_layers):
+        for i in range(self.mid_layers, self.n_layer):
             class_branch = layers.conv2d("class_conv%d" % (i+2), class_branch,
-                self.map_depth // (2 ** (self.n_layers - i - 1)), 4, 2,
+                self.map_depth // (2 ** (self.n_layer - i - 1)), 4, 2,
                 self.spectral_norm, update_collection, self.reuse)
             class_branch = layers.LeakyReLU(class_branch)
 

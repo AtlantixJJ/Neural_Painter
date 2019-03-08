@@ -1,3 +1,4 @@
+import tensorflow as tf
 import os, time, sys
 import zipfile
 import numpy as np
@@ -350,27 +351,32 @@ class ADE20KLoader(Dataset):
         else:
             return rgb
             
-class FileDataset(Dataset):
-    """
-    celebA need extra cropping
-    """
-    def __init__(self, data_path, npy_dir=None, img_size=(64, 64), shuffle=True):
-        self.transform = ops.fn_seq([
-            ops.get_illumination_disturb(),
-            ops.get_disturb_image('none'),
-            ops.get_flip_image(),
-            ops.get_resize_image(img_size),
-            ops.get_preprocess_fn('tanh')
-            ])
 
-        self.data_path = data_path
-        self.shuffle = shuffle
-        self.npy_dir = npy_dir
+class TFDataloader():
+    def __init__(self, dataset, batch_size, num_iter, sess=None):
+        """
+        A workround need to specify num_iter
+        """
+        self.dataset = dataset
+        self.num_iter = num_iter
+        self.sess = sess
 
-        # load label
-        if self.npy_dir is not None:
-            self.data = np.load(npy_dir)
-            self.class_num = self.data.shape[-1]
+        self.dataset = dataset.dataset.shuffle(buffer_size=256).batch(batch_size)
+        self.iterator = self.dataset.make_initializable_iterator()
+        self.next_element = self.iterator.get_next()
+        
+    def reset(self):
+        self.sess.run(self.iterator.initializer)
+
+    def __getitem__(self, idx):
+        return self.sess.run(self.next_element) #self.dataset.__getitem__(idx)
+    
+    def __len__(self):
+        return self.num_iter #self.dataset.__len__()
+
+class FileDataset():
+    def __init__(self, data_path, img_size=(64, 64), npy_dir=None):
+        self.img_size = img_size
 
         if ".zip" in data_path:
             self.use_zip = True
@@ -383,39 +389,60 @@ class FileDataset(Dataset):
             self.files = sum([[file for file in files] for path, dirs, files in os.walk(data_path) if files], [])
             self.files.sort()
 
-        self.rng = np.random.RandomState(1729471)
-        self.idxs = np.arange(len(self.files))
-        self.reset()
-        
-    def reset(self):
-        self.rng.shuffle(self.idxs)
+        # 图片文件的列表
+        filelist_t = tf.constant(self.files)
+        self.file_num = len(self.files)
 
-    def access(self, idx):
+        # label
+        label = np.load(npy_dir)
+        label_t = tf.constant(label)
+        self.class_num = label.shape[-1]
+
+        dataset = tf.data.Dataset.from_tensor_slices((filelist_t, label_t))
+        self.dataset = dataset.map(self._parse_function)
+
+    def read_image_from_zip(self, filename):
+        """
+        An eagar function for reading image from zip
+        """
+        f = filename.numpy().decode("utf-8")
+        return np.asarray(Image.open(BytesIO(self.data_file.read(f))))
+
+    def _parse_function(self, filename, label):
         if self.use_zip:
-            img = np.asarray(Image.open(BytesIO(self.data_file.read(self.files[idx]))))
+            x = tf.py_function(self.read_image_from_zip, [filename], tf.float32)
         else:
-            img_path = os.path.join(self.data_path, self.files[idx])
-            img = np.asarray(Image.open(open(img_path, "rb")))
-        return self.transform(img)
-
-    def __getitem__(self, i):
-        idx = self.idxs[i]
-        # BAD: hard coded for getchu
-        if self.npy_dir is not None:
-            image = self.access(idx)
-            label = self.data[idx]
-            return [image, label]
-        else:
-            image = self.access(idx)
-            return [image]
-
-    def __len__(self):
-        return len(self.files)
+            x = tf.read_file(filename)
+            x = tf.image.decode_image(x)
+        
+        x = tf.image.resize_bilinear(x, (self.img_size[0], self.img_size[1]))
+        x = tf.cast(x, tf.float32) / 255.0
+        x = tf.image.random_brightness(x, 0.05)
+        x = tf.image.random_contrast(x, 0.9, 1.1)
+        x = tf.image.random_flip_left_right(x)
+        x = tf.clip_by_value(x * 2 - 1, -1.0, 1.0)
+        return x, label
 
 class CelebADataset(FileDataset):
     def __init__(self, data_path, img_size=(64, 64), npy_dir=None):
-        super(CelebADataset, self).__init__(data_path, npy_dir, img_size, True)
-    
+        super(CelebADataset, self).__init__(data_path, img_size, npy_dir)
+
+    # 函数将filename对应的图片文件读进来
+    def _parse_function(self, filename, label):
+        if self.use_zip:
+            x = tf.py_function(self.read_image_from_zip, [filename], tf.float32)
+        else:
+            x = tf.read_file(filename)
+            x = tf.image.decode_image(x)
+        
+        x = tf.image.crop_to_bounding_box(x, 50, 25, self.img_size[0], self.img_size[1])
+        x = tf.cast(x, tf.float32) / 255.0
+        x = tf.image.random_brightness(x, 0.05)
+        x = tf.image.random_contrast(x, 0.9, 1.1)
+        x = tf.image.random_flip_left_right(x)
+        x = tf.clip_by_value(x * 2 - 1, -1.0, 1.0)
+        return x, label
+
     def read_label(self):
         """
         For convert txt label to npy label
@@ -432,14 +459,3 @@ class CelebADataset(FileDataset):
         self.label = np.array(self.label)
         self.label[self.label==-1] = 0
         np.save(self.attr_file.replace(".txt", ""), self.label)
-    
-    def access(self, idx):
-        if self.use_zip:
-            img = np.asarray(Image.open(BytesIO(self.data_file.read(self.files[idx]))))
-        else:
-            img_path = os.path.join(self.data_path, self.files[idx])
-            img = np.asarray(Image.open(open(img_path, "rb")))
-
-        img = img[50:50+128, 25:25+128]
-
-        return self.transform(img)

@@ -160,7 +160,11 @@ class BaseGANTrainer(BaseTrainer):
 
         start_time = time.clock()
 
-        for sample in tqdm.tqdm(self.dataloader):
+        self.dataloader.reset()
+        self.epoch_count += 1
+        LEN = len(self.dataloader)
+        for i_ in tqdm.tqdm(range(LEN)):
+            sample = self.dataloader[i_]
             if len(sample[0].shape) == 5:
                 s = sample[0].shape
                 sample[0] = sample[0].reshape([s[0] * s[1], s[2], s[3], s[4]])
@@ -212,9 +216,6 @@ class BaseGANTrainer(BaseTrainer):
 
             self.maybe_intersum(last_iter)
             self.maybe_save(last_iter)
-        
-        self.dataloader.dataset.reset()
-        self.epoch_count += 1
 
     def maybe_save(self, last_iter):
         int_iter_num = self.global_iter // self.FLAGS.save_iter

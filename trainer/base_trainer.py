@@ -39,7 +39,7 @@ class BaseTrainer(object):
         print("=> Configure runtime environment")
         self.__init_runtime_environ()
         self.reset_train_state()
-
+        self.dataloader.sess = self.sess
         if self.is_init is False:
             self.sess.run([tf.global_variables_initializer()])
             self.is_init = True
