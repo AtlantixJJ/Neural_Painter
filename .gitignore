@@ -1,0 +1,16 @@
+past
+reference
+data
+result
+expr
+script/image_conbinator/imgs
+success
+*userdata
+.DS_Store
+*.pyc
+*.sh
+*.np[yz]
+*.png
+*.jpg
+.ipynb_checkpoints
+config.json

@@ -1,0 +1,35 @@
+data
+	result
+		rating
+			safe Constant_Float
+			questionable Constant_Float
+			explicit Constant_Float
+		character
+			Variable_Character_Name1 Constant_Float
+			Variable_Character_Name2 Constant_Float
+			Variable_Character_Name3 Constant_Float
+		copyright
+			Variable_Copyright_Name1 Constant_Float
+			Variable_Copyright_Name2 Constant_Float
+			Variable_Copyright_Name3 Constant_Float
+		general
+			Variable_Label_Name1 Constant_Float
+	filenane Constant_String_File_Path
+		
+	result
+		rating
+			safe Constant_Float
+			questionable Constant_Float
+			explicit Constant_Float
+		character
+			Variable_Character_Name1 Constant_Float
+			Variable_Character_Name2 Constant_Float
+			Variable_Character_Name3 Constant_Float
+		copyright
+			Variable_Copyright_Name1 Constant_Float
+			Variable_Copyright_Name2 Constant_Float
+			Variable_Copyright_Name3 Constant_Float
+		general
+			Variable_Label_Name1 Constant_Float
+	filenane Constant_String_File_Path
+	

@@ -1,0 +1,32 @@
+{
+    "display_size": 256,
+    "gpu": "3",
+    "userdata_dir": "userdata",
+    "models": {
+        "Anime Face": {
+            "model_class": "simple_generator",
+            "gen_model": "SimpleConvolutionGenerator",
+            "gen_config": {
+                "name": "G",
+                "out_dim": 3,
+                "map_size": 4,
+                "map_depth": 1024,
+                "n_layers": 5,
+                "norm_mtd": "contrib"
+            },
+            "disc_model": "SimpleConvolutionDiscriminator",
+            "disc_config": {
+                "name": "D",
+                "map_size": 4,
+                "map_depth": 1024,
+                "n_layers": 5,
+                "n_attrs": 34,
+                "norm_mtd": "group"
+            },
+            "sery": "",
+            "field_name": "GGAnimeFace",
+            "model_dir": "../success/",
+            "cgan": true
+        }
+    }
+}

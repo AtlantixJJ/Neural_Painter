@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html>
+
+<head>{% load static %}
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <script src="https://cdn.bootcss.com/jquery/3.3.1/jquery.min.js"></script>
+  <script src="https://cdn.bootcss.com/popper.js/1.14.2/umd/popper.min.js"></script>
+  <script src="https://cdn.bootcss.com/bootstrap/4.0.0/js/bootstrap.min.js"></script>
+  <script src="https://cdn.bootcss.com/noUiSlider/11.1.0/nouislider.min.js"></script>
+  <link href="https://cdn.bootcss.com/bootstrap/4.0.0/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdn.bootcss.com/noUiSlider/11.1.0/nouislider.min.css" rel="stylesheet">
+  <link href="{% static 'css/style.css' %}" rel="stylesheet">
+  <script src="{% static 'lib/spin.min.js' %}"></script>
+  <script src="{% static 'js/graph.js' %}"></script>
+  <script src="{% static 'js/draw.js' %}"></script>
+  <title>Neural Painter</title>
+</head>
+
+<body>
+  <div class="container">
+    <div class="col-md-8 offset-md-2 col-sm-10 offset-sm-1">
+
+      <div class="row my-4">
+        <h4 class="col title">NEURAL PAINTER</h4>
+      </div>
+
+      <div class="row d-flex justify-content-around my-4">
+        <div class="option-item d-flex align-items-center mx-1">
+          <label class="option-label">颜色</label>
+          <div class="dropdown">
+            <button type="button" class="color-btn ml-2" id="color-drop-menu" aria-haspopup="true" data-toggle="dropdown">
+              <div class="color-block"></div>
+            </button>
+            <ul class="dropdown-menu color-menu" role="menu" aria-labelledby="color-drop-menu" id="color-menu">
+            </ul>
+          </div>
+        </div>
+
+        <div class="option-item d-flex align-items-center mx-1">
+          <label class="option-label">线条宽度</label>
+          <div class="dropdown">
+            <button type="button" class="width-btn ml-2" id="width-drop-menu" aria-haspopup="true" data-toggle="dropdown">
+              <span id="width-label" class="width-label">5</span>
+            </button>
+            <div class="dropdown-menu width-menu" role="menu" aria-labelledby="width-drop-menu" id="width-menu">
+              <div class="width-panel">
+                <div class="slider" id="slider"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="option-item d-flex align-items-center mx-1">
+          <label class="option-label">分类</label>
+          <div class="dropdown">
+            <button type="button" class="model-btn d-flex align-items-center ml-1" id="model-drop-menu" aria-haspopup="true" data-toggle="dropdown">
+              <span id="model-label">动漫人脸</span>
+              <div class="caret ml-2"></div>
+            </button>
+            <ul class="dropdown-menu model-menu" role="menu" aria-labelledby="model-drop-menu" id="model-menu">
+            </ul>
+          </div>
+        </div>
+
+      </div>
+
+      <div class="row canvas-background my-4">
+        <div id="spin"></div>
+        <img id="image" width="256" height="256" src="" class="image" hidden/>
+        <canvas id="canvas" width="256" height="256" class="image">
+        </canvas>
+        <button id="start" type="button" class="btn btn-outline-success btn-sm">
+          开始 ▶︎
+        </button>
+      </div>
+
+      <div id="option-buttons" class="container" hidden>
+        <div class="row d-flex justify-content-around my-4">
+          <button id="stroke" type="button" class="option-btn active">
+            <div class="btn-icon stroke-icon"></div>
+            <div class="btn-text">隐藏笔画</div>
+          </button>
+          <button id="srand" type="button" class="option-btn">
+            <div class="btn-icon regen-icon"></div>
+            <div class="btn-text">重新生成</div>
+          </button>
+          <button id="clear" type="button" class="option-btn">
+            <div class="btn-icon clear-icon"></div>
+            <div class="btn-text">清空</div>
+          </button>
+        </div>
+
+        <div class="row my-4">
+          <button id="submit" type="button" class="submit-btn col btn">
+            提交
+          </button>
+        </div>
+
+        <div class="row d-flex justify-content-around my-4">
+          <button id="download-sketch" type="button" class="download-btn">
+            <div class="btn-text">下载笔画</div>
+          </button>
+          <button id="download-image" type="button" class="download-btn">
+            <div class="btn-text">下载图片</div>
+          </button>
+        </div>
+
+      </div>
+
+      <div class="row d-flex justify-content-around my-4">
+        <button id="link-demo" type="button" class="download-btn">
+          <a class="btn-text" target="_blank" href="https://github.com/thu-fit/NeuralPainterDemo">展示视频合集</a>
+        </button>
+        <button id="link-sample" type="button" class="download-btn">
+          <a class="btn-text" target="_blank" href="{% static 'media/simple_np.mp4' %}">简单样例</a>
+        </button>
+      </div>
+
+    </div>
+  </div>
+  <!-- <form method="post" id="upload-form" class="container" action="upload" enctype="multipart/form-data">
+    <div class="row">
+      <label class="custom-file col-sm-9">
+        <input type="file" id="choose" class="custom-file-input">
+        <span id="filename" class="custom-file-control"></span>
+      </label>
+      <button id="upload" type="button" class="col-sm-3 color-btn btn btn-outline-primary btn-sm" onclick="">
+        上传
+      </button>
+    </div>
+  </form> -->
+</body>
+
+</html>
