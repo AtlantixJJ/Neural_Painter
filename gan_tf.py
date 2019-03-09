@@ -39,7 +39,7 @@ tf.app.flags.DEFINE_boolean("cgan", True, "If to use ACGAN")
 tf.app.flags.DEFINE_integer("img_size", 128, "The size of input image, 64 | 128")
 tf.app.flags.DEFINE_string("model_name", "hg", "model type: simple | simple_mask | hg | hg_mask")
 tf.app.flags.DEFINE_string("data_dir", "/home/atlantix/data/celeba/img_align_celeba.zip", "data path")
-tf.app.flags.DEFINE_boolean("cbn_project", False, "If to project to depth dim")
+tf.app.flags.DEFINE_boolean("cbn_project", True, "If to project to depth dim")
 
 # ------ train control flags ----- #
 
@@ -50,7 +50,7 @@ tf.app.flags.DEFINE_float("d_lr", 4e-4, "learning rate")
 tf.app.flags.DEFINE_integer("batch_size", 64, "training batch size")
 tf.app.flags.DEFINE_integer("num_iter", 200000, "training iteration")
 tf.app.flags.DEFINE_integer("dec_iter", 100000, "training iteration")
-tf.app.flags.DEFINE_integer("disc_iter", 1, "discriminator training iter")
+tf.app.flags.DEFINE_integer("disc_iter", 2, "discriminator training iter")
 tf.app.flags.DEFINE_integer("gen_iter", 1, "generative training iter")
 
 FLAGS = tf.app.flags.FLAGS

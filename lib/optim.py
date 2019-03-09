@@ -23,8 +23,6 @@ class PictureOptimizer(object):
         self.RANGE = np.arctanh(1 - self.EPS / 3.0)
 
         self.CONFIG = CONFIG
-        self.lr_z = CONFIG['lr_z']
-        self.lr_c = CONFIG['lr_c']
 
         # determine gen & disc model path
         if len(CONFIG["sery"]) > 0:
@@ -37,7 +35,7 @@ class PictureOptimizer(object):
         self.using_cgan = CONFIG['cgan']
         
         # default model class:
-        # model_class = model.simple_generator.SimpleConvolutionGenerator
+        # model_class = model.simple.SimpleConvolutionGenerator
         model_class = getattr(getattr(model, CONFIG['model_class']), CONFIG['gen_model'])
         gen_config = CONFIG['gen_config']
         self.gen_model = model_class(**gen_config)
@@ -50,6 +48,7 @@ class PictureOptimizer(object):
         self.input_dim = gen_config['out_dim']
         self.n_attrs = disc_config['n_attr']
         self.output_shape = [self.size, self.size, self.input_dim]
+        self.trans = ops.get_inverse_process_fn(kind='tanh')
 
         # init
         self.load_model()
@@ -71,12 +70,14 @@ class PictureOptimizer(object):
             self.c_noise = tf.sigmoid(self.raw_c_noise)
             self.c_label = tf.placeholder(tf.float32, [None, self.n_attrs], name="c_label")
             
-            self.x_fake = self.gen_model([self.z_noise, self.c_noise])
+            self.x_fake = self.gen_model([self.z_noise, self.c_noise], "no_ops")
         else:
-            self.x_fake = self.gen_model(self.z_noise)
+            self.x_fake = self.gen_model(self.z_noise, "no_ops")
 
-        # build model
-        self.disc_fake = self.disc_model(self.fake_sample)[0]
+        self.disc_fake = self.disc_model(self.fake_sample, "no_ops")[0]
+
+        self.sess.run(tf.global_variables_initializer())
+
         self.gen_model.load_from_npz(self.gen_dir, self.sess)
         self.disc_model.load_from_npz(self.disc_dir, self.sess)
 
@@ -124,12 +125,8 @@ class PictureOptimizer(object):
         if self.using_cgan  == False: return
         self.origin_raw_c += -lr * self.gradc[0]
         noise_c = tf.sigmoid(tf.constant(self.origin_raw_c)).eval()
-        print("=> Grad c max=%.4f, min=%.4f, norm=%.4f]" % (
-            self.gradc[0].max(),
-            self.gradc[0].min(),
-            np.linalg.norm(self.gradc[0], 2)))
-        print("=> c vector: max=%.4f, min=%.4f, norm=%.4f" % (
-            noise_c.max(), noise_c.min(), np.linalg.norm(noise_c, 2)))
+        print("=> c vector: min=%.4f, max=%.4f, norm=%.4f" % (
+            noise_c.min(), noise_c.max(), np.linalg.norm(noise_c, 2)))
 
     def get_z_noise(self):
         # origin raw z noise: guassian with 3 sigma
@@ -138,12 +135,8 @@ class PictureOptimizer(object):
     def change_z_noise(self, lr):
         self.origin_raw_z += -lr * self.gradz[0]
         noise_z = np.tanh(self.origin_raw_z)
-        print("=> Grad z max=%.4f, min=%.4f, norm=%.4f]" % (
-            self.gradz[0].max(),
-            self.gradz[0].min(),
-            np.linalg.norm(self.gradz[0], 2)))
-        print("=> z vector: max=%.4f, min=%.4f, norm=%.4f" % (
-            noise_z.max(), noise_z.min(), np.linalg.norm(noise_z, 2)))
+        print("=> z vector: min=%.4f, max=%.4f, norm=%.4f" % (
+            noise_z.min(), noise_z.max(), np.linalg.norm(noise_z, 2)))
 
     def get_noise(self):
         self.get_z_noise()
@@ -153,23 +146,26 @@ class PictureOptimizer(object):
         self.change_z_noise(self.lr_z)
         self.change_c_noise(self.lr_c)
 
-    def get_noise_batch(self, raw_z, grad):
-        print("=> noise: [%f, %f]" % (raw_z.min(), raw_z.max()))
+    def get_noise_batch(self, raw_z, lr, grad):
+        print("=> noise: min=%f, max=%f" % (raw_z.min(), raw_z.max()))
         grad_std = np.std(grad)
 
-        noise_list = [raw_z - self.lr_z * grad]
+        noise_list = [raw_z - lr * grad]
 
         for i in range(3):
             noise_list.append(raw_z - (2 ** (i+1) ) * lr * grad)
         for i in range(4):
-            noise_list.append(raw_z - (2 ** i) * lr * grad + lr * ops.random_normal(raw_z.shape) * grad_std * 0.3)
+            noise_list.append(raw_z - (2 ** i) * lr * grad + lr * ops.get_random("normal", raw_z.shape) * grad_std * 0.1)
         
         noise_list = np.concatenate(noise_list, axis=0)
-        noise_list = np.maximum(noise_list, -5)
-        noise_list = np.minimum(noise_list, 5)
+        noise_list = np.maximum(noise_list, -self.RANGE)
+        noise_list = np.minimum(noise_list, self.RANGE)
         return noise_list
 
     def change_noise_batch(self):
+        with open("learning_rate.txt", "r") as f:
+            self.lr_z = float(f.readline().strip())
+            self.lr_c = float(f.readline().strip())
         new_z_list = self.get_noise_batch(self.origin_raw_z, self.lr_z, self.gradz[0])
         self.feed.update({self.raw_z_noise: new_z_list})
         if self.using_cgan:
@@ -184,17 +180,29 @@ class PictureOptimizer(object):
             self.mask : self.feed_gradient[self.mask]})
 
         self.disc_val, self.mse_val = self.sess.run([self.disc_fake, self.mse_batch], self.feed)
-        delta = 0.04 * (self.mse_val - self.loss_)
-        self.disc_val = self.disc_val[:, 0]
-        print("=> Disc val:" + str(self.disc_val))
-        print("=> Delta:" + str(delta))
+        delta = 0.04 * (self.mse_val - self.loss_) # suppose to be negative
+        self.disc_val = self.disc_val[:, 0] # the more positive, the better
+        print("=> Disc val: " + str(self.disc_val))
+        print("=> Feature Value: " + str(delta))
         self.disc_val -= delta
         ind = np.argmax(self.disc_val)
         print("=> Best index: %d" % ind)
 
-        self.origin_raw_z = new_z_list[ind:ind+1]
+        new_z = new_z_list[ind:ind+1]
+        delta_z = new_z - self.origin_raw_z
+        print("=> Delta z: min=%f, max=%f, norm=%f" % (
+            delta_z.min(),
+            delta_z.max(),
+            np.linalg.norm(delta_z, 2)))
+        self.origin_raw_z = new_z
         if self.using_cgan:
-            self.origin_raw_c = new_c_list[ind:ind+1]
+            new_c = new_c_list[ind:ind+1]
+            delta_c = new_c - self.origin_raw_c
+            print("=> Delta c: min=%f, max=%f, norm=%f" % (
+                delta_c.min(),
+                delta_c.max(),
+                np.linalg.norm(delta_c, 2)))
+            self.origin_raw_c = new_c
             
         self.output = np.array(self.trans(self.output[0]))
 
@@ -239,8 +247,17 @@ class PictureOptimizer(object):
         
         if self.using_cgan:
             self.loss_, self.gradz, self.gradc = self.sess.run([self.mse_loss, self.gz, self.gc], self.feed_gradient)
+            print("=> Grad c min=%.4f, max=%.4f, norm=%.4f" % (
+                self.gradc[0].min(),
+                self.gradc[0].max(),
+                np.linalg.norm(self.gradc[0], 2)))
         else:
             self.loss_, self.gradz = self.sess.run([self.mse_loss, self.gz], self.feed_gradient)
+        
+        print("=> Grad z min=%.4f, max=%.4f, norm=%.4f" % (
+            self.gradz[0].min(),
+            self.gradz[0].max(),
+            np.linalg.norm(self.gradz[0], 2)))
 
     def generate(self, sketch_img, mask_img, raw_z, raw_c=[], file_lr_path="learning_rate.txt"):
         print("=> loading sketch and mask")

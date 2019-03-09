@@ -4,9 +4,7 @@
     "userdata_dir": "userdata",
     "models": {
         "Anime Face": {
-            "lr_z": 0.1,
-            "lr_c": 0.1,
-            "model_class": "simple_generator",
+            "model_class": "simple",
             "gen_model": "SimpleConvolutionGenerator",
             "gen_config": {
                 "name": "G",
@@ -20,7 +18,7 @@
             "disc_model": "SimpleConvolutionDiscriminator",
             "disc_config": {
                 "name": "D",
-                "map_depth": 1024,
+                "map_depth": 32,
                 "n_layer": 5,
                 "n_attr": 34,
                 "norm_mtd": "none"

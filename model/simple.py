@@ -44,6 +44,7 @@ class SimpleConvolutionGenerator(basic.SequentialNN):
             x = bn_partial(name + "/bn", x)
             #x = layers.conditional_batch_normalization(name + "cbn", x, input, self.cbn_project, self.reuse)
             x = tf.nn.relu(x)
+            print(x.get_shape())
 
         x = layers.conv2d("conv1", x, self.out_dim, ksize, 1, self.spectral_norm, update_collection, self.reuse)
 

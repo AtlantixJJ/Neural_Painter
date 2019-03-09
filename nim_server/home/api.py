@@ -11,9 +11,6 @@ with open('config2.json', 'r') as f:
     CONFIG = json.load(f)
 
 IMG_SIZE = (CONFIG['display_size'], CONFIG['display_size'])
-
-
-
 editors = optim.PictureOptimizerS(CONFIG)
 
 def model_exist(model):
@@ -45,7 +42,7 @@ def get_array(model, image):
                 (i, j), (color[0], color[1], color[2], int(masked * 255)))
 
     time = datetime.now()
-    dirname = os.path.join(CONFIG['userdata_dir'], CONFIG['models'][model]['model_name'])
+    dirname = os.path.join(CONFIG['userdata_dir'], model.replace(" ", "_"))
     save_image(dirname, mask_image, 'mask', time)
     save_image(dirname, new_image, 'sketch', time)
     return [origin, mask]
