@@ -35,24 +35,24 @@ def group_normalization(x, G=32, name='group', reuse=False):
         output = tf.transpose(output, [0, 2, 3, 1])
         return output
 
-def get_norm(x, name, training=None, reuse=False):
+def get_norm(name, x, method, training=None, reuse=False):
     """
     Get batch normalization of different kind.
     """
-    if name is None:
+    if method is None:
         return x
     
-    if name.find("inst") > -1:
+    if method.find("inst") > -1:
         # usually fail to produce any realistic result in GAN
         return instance_normalization(x)
-    elif name.find("default") > -1:
+    elif method.find("default") > -1:
         # Newly added, seems to be inefficient
-        return tf.layers.batch_normalization(inputs=x, name=name, reuse=reuse, training=training, epsilon=1e-6)
-    elif name.find("contrib") > -1:
+        return tf.layers.batch_normalization(inputs=x, name=name + "_" + method, reuse=reuse, training=training, epsilon=1e-6)
+    elif method.find("contrib") > -1:
         # Common choice
-        return tf.contrib.layers.batch_norm(inputs=x, scope=name, reuse=reuse, is_training=training, epsilon=1e-6)
-    elif name.find("group") > -1:
-        return group_normalization(x, name=name, reuse=reuse)
+        return tf.contrib.layers.batch_norm(inputs=x, scope=name + "_" + method, reuse=reuse, is_training=training, epsilon=1e-6)
+    elif method.find("group") > -1:
+        return group_normalization(x, name=name + "_" + method, reuse=reuse)
     else:
         return x
 
@@ -106,7 +106,8 @@ def conditional_batch_normalization(name_scope, inputs, conditions, training=Tru
         train_var_op = tf.assign(
             population_var, population_var * decay + batch_var * (1 - decay))
 
-        tf.add_to_collection(tf.GraphKeys.UPDATE_OPS, [train_mean_op, train_var_op])
+        tf.add_to_collection(tf.GraphKeys.UPDATE_OPS, train_mean_op)
+        tf.add_to_collection(tf.GraphKeys.UPDATE_OPS, train_var_op)
 
         x = tf.nn.batch_normalization(inputs, population_mean, population_var, None, None, epsilon)
         return gamma * x + beta
@@ -170,23 +171,89 @@ def subpixel_conv(name, input, output_dim, filter_size=3, spectral=False, update
         spectral=spectral, update_collection=update_collection, reuse=reuse)
     return tf.depth_to_space(output, 2)
 
+def hw_flatten(x) :
+    return tf.reshape(x, shape=[x.shape[0], -1, x.shape[-1]])
+
 def simple_residual_block(name, input, filter_size=3,
-    activation_fn=tf.nn.relu, normalizer_mode=None, 
-    training=None, spectral=False, update_collection=None, reuse=False):
+    activation_fn=tf.nn.relu, norm_fn=None,
+    spectral=False, update_collection=None, reuse=False):
     """
     identity + 2 conv with same depth
     """
 
     input_dim = input.get_shape().as_list()[-1]
 
-    x = conv2d(name + "conv1", input, input_dim, filter_size, 1,
+    x = conv2d(name + "/conv1", input, input_dim, filter_size, 1,
         spectral=spectral, update_collection=update_collection, reuse=reuse)
-    x = get_norm(x, name + "bn1", training, reuse)
+    x = norm_fn(name + "/bn1", x)
     x = activation_fn(x)
 
-    x = conv2d(name + "conv2", x, input_dim, filter_size, 1,
+    x = conv2d(name + "/conv2", x, input_dim, filter_size, 1,
         spectral=spectral, update_collection=update_collection, reuse=reuse)
-    x = get_norm(x, name + "bn2", training, reuse)
+    x = norm_fn(name + "/bn2", x)
 
-    return input + output
+    return input + x
 
+"""
+def upsample_residual_block(name, x_init, channels, use_bias=True, is_training=True, sn=False,):
+    with tf.variable_scope(scope):
+        with tf.variable_scope(name):
+            x = batch_norm(x_init, is_training)
+            x = relu(x)
+            x = deconv(x, channels, kernel=3, stride=2, use_bias=use_bias, sn=sn)
+
+        with tf.variable_scope('res2') :
+            x = batch_norm(x, is_training)
+            x = relu(x)
+            x = deconv(x, channels, kernel=3, stride=1, use_bias=use_bias, sn=sn)
+
+        with tf.variable_scope('skip') :
+            x_init = deconv(x_init, channels, kernel=3, stride=2, use_bias=use_bias, sn=sn)
+
+    return x + x_init
+"""
+
+def attention(name, x, ch, spectral_norm=True, update_collection=None, reuse=False):
+    f = conv2d(name + "f_conv", x, ch // 8, 1, 1, spectral_norm, update_collection) # [bs, h, w, c']
+    g = conv2d(name + "g_conv", x, ch // 8, 1, 1, spectral_norm, update_collection) # [bs, h, w, c']
+    h =  conv2d(name + "h_conv", x, ch, 1, 1, spectral_norm, update_collection) # [bs, h, w, c]
+
+    # N = h * w
+    s = tf.matmul(hw_flatten(g), hw_flatten(f), transpose_b=True) # # [bs, N, N]
+
+    beta = tf.nn.softmax(s)  # attention map
+
+    o = tf.matmul(beta, hw_flatten(h)) # [bs, N, C]
+    with tf.variable_scope(name, reuse=reuse):
+        gamma = tf.get_variable("gamma", [1], initializer=tf.constant_initializer(0.0))
+
+    o = tf.reshape(o, shape=x.shape) # [bs, h, w, C]
+    x = gamma * o + x
+
+    return x
+
+"""
+def attention_2(name, x, ch, spectral_norm=True, update_collection=None, reuse=False):
+    batch_size, height, width, num_channels = x.get_shape().as_list()
+    f = conv2d(name + "f_conv", x, ch // 8, 1, 1, spectral_norm, update_collection)  # [bs, h, w, c']
+    f = max_pooling(f)
+
+    g = conv(x, ch // 8, kernel=1, stride=1, sn=self.sn, scope='g_conv')  # [bs, h, w, c']
+
+    h = conv(x, ch // 2, kernel=1, stride=1, sn=self.sn, scope='h_conv')  # [bs, h, w, c]
+    h = max_pooling(h)
+
+    # N = h * w
+    s = tf.matmul(hw_flatten(g), hw_flatten(f), transpose_b=True)  # # [bs, N, N]
+
+    beta = tf.nn.softmax(s)  # attention map
+
+    o = tf.matmul(beta, hw_flatten(h))  # [bs, N, C]
+    gamma = tf.get_variable("gamma", [1], initializer=tf.constant_initializer(0.0))
+
+    o = tf.reshape(o, shape=[batch_size, height, width, num_channels // 2])  # [bs, h, w, C]
+    o = conv(o, ch, kernel=1, stride=1, sn=self.sn, scope='attn_conv')
+    x = gamma * o + x
+
+    return x
+"""

@@ -1,8 +1,5 @@
 import tensorflow as tf
-
-from tensorflow import layers
-from tensorflow.contrib import layers as L
-from lib import ops, layers
+from lib import ops, layers, utils
 from model import basic
 import numpy as np
 
@@ -24,23 +21,31 @@ class SimpleConvolutionGenerator(basic.SequentialNN):
         self.cbn_project = False
 
     def build_inference(self, input, update_collection="no_ops"):
+        if self.n_layer <= 5: ksize = 5
+        elif self.n_layer <= 6: ksize = 7
+        else: ksize = 9
+
+        bn_partial = utils.partial(layers.get_norm, method=self.norm_mtd, training=self.training, reuse=self.reuse)
+
         # ReLU is default in this function
         x = layers.linear("fc1", input, 
                 (self.map_size ** 2) * self.map_depth,
                 self.spectral_norm, update_collection, self.reuse)
 
         x = tf.reshape(x, [-1, self.map_size, self.map_size, self.map_depth])
-        x = layers.conditional_batch_normalization("cbn", x, input, self.cbn_project, self.reuse)
+        #x = layers.conditional_batch_normalization("cbn", x, input, self.cbn_project, self.reuse)
+        x = bn_partial('fc1/bn', x)
         x = tf.nn.relu(x)
 
         for i in range(1, self.n_layer + 1, 1):
             name = "deconv%d" % i
             x = layers.deconv2d(name, x, int(self.map_depth // (2 ** i)), 4, 2,
                 self.spectral_norm, update_collection, self.reuse)
-            x = layers.conditional_batch_normalization(name + "/cbn", x, input, self.cbn_project, self.reuse)
+            x = bn_partial(name + "/bn", x)
+            #x = layers.conditional_batch_normalization(name + "cbn", x, input, self.cbn_project, self.reuse)
             x = tf.nn.relu(x)
 
-        x = layers.conv2d("conv1", x, self.out_dim, 3, 1, self.spectral_norm, update_collection, self.reuse)
+        x = layers.conv2d("conv1", x, self.out_dim, ksize, 1, self.spectral_norm, update_collection, self.reuse)
 
         self.out = tf.nn.tanh(x)
 
@@ -84,6 +89,7 @@ class MaskConvolutionGenerator(basic.SequentialNN):
                 reuse=self.reuse, update_collection=update_collection)
             x = ops.conditional_batch_normalization(name + "/cbn", x, input, self.cbn_project, self.reuse)
             x = tf.nn.relu(x)
+            print(x.get_shape())
 
         mask_x = tf.identity(x)
 
@@ -93,6 +99,7 @@ class MaskConvolutionGenerator(basic.SequentialNN):
                 reuse=self.reuse, update_collection=update_collection)
             x = ops.conditional_batch_normalization(name + "/cbn", x, input, self.cbn_project, self.reuse)
             x = tf.nn.relu(x)
+            print(x.get_shape())
 
         for i in range(self.mid_layers, self.n_layer + 1):
             name = "mask_deconv%d" % i
@@ -100,6 +107,7 @@ class MaskConvolutionGenerator(basic.SequentialNN):
                 reuse=self.reuse, update_collection=update_collection)
             mask_x = ops.conditional_batch_normalization(name + "/cbn", mask_x, input, self.cbn_project, self.reuse)
             mask_x = tf.nn.relu(mask_x)
+            print(x.get_shape())
 
         size, depth = x.get_shape().as_list()[-2:]
 
@@ -132,7 +140,7 @@ class MaskConvolutionGenerator(basic.SequentialNN):
         return self.out
 
 class SimpleConvolutionDiscriminator(basic.SequentialNN):
-    def __init__(self, n_layer=5, n_attr=34, map_depth=1024, spectral_norm=True, **kwargs):
+    def __init__(self, n_layer=5, n_attr=34, map_depth=64, spectral_norm=True, **kwargs):
         super(SimpleConvolutionDiscriminator, self).__init__(**kwargs)
 
         self.spectral_norm = spectral_norm
@@ -141,7 +149,12 @@ class SimpleConvolutionDiscriminator(basic.SequentialNN):
         self.n_attr = n_attr
 
     def build_inference(self, input, update_collection="no_ops"):
-        x = layers.conv2d("conv1", input, self.map_depth // (2 ** self.n_layer), 5, 1,
+        #bn_partial = utils.partial(layers.get_norm, training=self.training, reuse=self.reuse)
+        if self.n_layer <= 5: ksize = 5
+        elif self.n_layer <= 6: ksize = 7
+        else: ksize = 9
+
+        x = layers.conv2d("conv1", input, self.map_depth, ksize, 1,
                     self.spectral_norm, update_collection, self.reuse)
         x = layers.LeakyReLU(x)
 
@@ -149,26 +162,29 @@ class SimpleConvolutionDiscriminator(basic.SequentialNN):
 
         for i in range(self.mid_layers):
             x = layers.conv2d("main_conv%d" % (i+2), x,
-                self.map_depth // (2 ** (self.n_layer - i - 1)), 4, 2,
+                self.map_depth * (2 ** (i+1)), 4, 2,
                 self.spectral_norm, update_collection, self.reuse)
             x = layers.LeakyReLU(x)
+            print(x.get_shape())
 
         class_branch = tf.identity(x)
 
         for i in range(self.mid_layers, self.n_layer):
             x = layers.conv2d("disc_conv%d" % (i+2), x,
-                self.map_depth // (2 ** (self.n_layer - i - 1)), 4, 2,
+                self.map_depth * (2 ** (i+1)), 4, 2,
                 self.spectral_norm, update_collection, self.reuse)
             x = layers.LeakyReLU(x)
+            print(x.get_shape())
         
         # discrimination branch
         x = layers.learned_sum("ls_disc", x, self.reuse)
 
         for i in range(self.mid_layers, self.n_layer):
             class_branch = layers.conv2d("class_conv%d" % (i+2), class_branch,
-                self.map_depth // (2 ** (self.n_layer - i - 1)), 4, 2,
+                self.map_depth * (2 ** (i+1)), 4, 2,
                 self.spectral_norm, update_collection, self.reuse)
             class_branch = layers.LeakyReLU(class_branch)
+            print(x.get_shape())
 
         class_branch = layers.learned_sum("ls_class", class_branch, self.reuse)
 

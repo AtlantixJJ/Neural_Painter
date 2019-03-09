@@ -6,7 +6,7 @@ from tensorflow import layers
 from tensorflow.contrib import layers as L
 from lib import ops
 import numpy as np
-from model import basic, simple_generator
+from model import basic, simple
 
 
 class SimpleConditionalGenerator(basic.SequentialNN):

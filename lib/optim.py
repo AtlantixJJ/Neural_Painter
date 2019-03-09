@@ -123,8 +123,7 @@ class PictureOptimizer(object):
     def change_c_noise(self, lr):
         if self.using_cgan  == False: return
         self.origin_raw_c += -lr * self.gradc[0]
-        # use eagar execution here, because np does not have sigmoid function
-        noise_c = tf.sigmoid(self.origin_raw_c)
+        noise_c = tf.sigmoid(tf.constant(self.origin_raw_c)).eval()
         print("=> Grad c max=%.4f, min=%.4f, norm=%.4f]" % (
             self.gradc[0].max(),
             self.gradc[0].min(),
@@ -134,7 +133,7 @@ class PictureOptimizer(object):
 
     def get_z_noise(self):
         # origin raw z noise: guassian with 3 sigma
-        self.origin_raw_z = ops.get_random("gaussian", (1, 128)) * 3
+        self.origin_raw_z = ops.get_random("normal", (1, 128)) * 3
 
     def change_z_noise(self, lr):
         self.origin_raw_z += -lr * self.gradz[0]
@@ -282,7 +281,7 @@ class PictureOptimizer(object):
             self.get_noise()
             if self.get_output() == True:
                 break
-        time_end=time.time()
+        time_end = time.time()
         print ("=> Generated origin image: " + (str)(time_end - time_start) + "s")
         if self.using_cgan == True:
             return self.output, self.origin_raw_z, self.origin_raw_c
@@ -294,7 +293,7 @@ class PictureOptimizerS(object):
         os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
         os.environ["CUDA_VISIBLE_DEVICES"] = CONFIG['gpu']
 
-        tf.enable_eager_execution()
+        #tf.enable_eager_execution()
         config = tf.ConfigProto()
         config.gpu_options.allow_growth = True
         sess = tf.InteractiveSession(config=config)

@@ -2,7 +2,7 @@
 supported models : 
 simple_mnist, default
 """
-import model.simple_generator as sg
-import model.conditional_generator as cgan
-import model.good_generator as gg
+import model.simple as sg
+import model.conditional as cgan
+import model.deep as dg
 import model.classifier

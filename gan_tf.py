@@ -45,12 +45,12 @@ tf.app.flags.DEFINE_boolean("cbn_project", False, "If to project to depth dim")
 
 tf.app.flags.DEFINE_boolean("use_cache", False, "If to use cache to prevent cactastrophic forgetting.")
 tf.app.flags.DEFINE_integer("gpu", 4, "which gpu to use")
-tf.app.flags.DEFINE_float("g_lr", 1e-4, "learning rate")
+tf.app.flags.DEFINE_float("g_lr", 2e-4, "learning rate")
 tf.app.flags.DEFINE_float("d_lr", 4e-4, "learning rate")
 tf.app.flags.DEFINE_integer("batch_size", 64, "training batch size")
 tf.app.flags.DEFINE_integer("num_iter", 200000, "training iteration")
 tf.app.flags.DEFINE_integer("dec_iter", 100000, "training iteration")
-tf.app.flags.DEFINE_integer("disc_iter", 3, "discriminator training iter")
+tf.app.flags.DEFINE_integer("disc_iter", 1, "discriminator training iter")
 tf.app.flags.DEFINE_integer("gen_iter", 1, "generative training iter")
 
 FLAGS = tf.app.flags.FLAGS
@@ -83,8 +83,7 @@ def main():
     else:
         dataset = dataloader.FileDataset(FLAGS.data_dir,
             npy_dir=npy_dir,
-            img_size=(size, size),
-            shuffle=True)
+            img_size=(size, size))
 
     dl = dataloader.TFDataloader(dataset, FLAGS.batch_size, dataset.file_num // FLAGS.batch_size)
     

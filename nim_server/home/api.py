@@ -1,37 +1,29 @@
-import os
-import sys
-import json
-import random
+import os, sys, json, random
+sys.path.insert(0, '..')
 import numpy as np
 from PIL import Image
 from skimage import io
 from datetime import datetime
+from lib import optim
 
-sys.path.insert(0, '..')
 CONFIG = {}
-with open('config.json', 'r') as f:
+with open('config2.json', 'r') as f:
     CONFIG = json.load(f)
 
 IMG_SIZE = (CONFIG['display_size'], CONFIG['display_size'])
-os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
-os.environ["CUDA_VISIBLE_DEVICES"] = CONFIG['gpu']
 
-from lib import optim
 
-editors = optim.PictureOptimizerS()
-for model_config in CONFIG['models'].values():
-    editors.create_new_optimizer(model_config)
+
+editors = optim.PictureOptimizerS(CONFIG)
 
 def model_exist(model):
-    return CONFIG['models'].has_key(model)
-
+    return (model in CONFIG['models'])
 
 def save_image(dirname, image, name, time):
     if not os.path.exists(dirname):
         os.makedirs(dirname)
     time_str = time.strftime('%Y%m%d_%H%M%S_%f')
     image.save(os.path.join(dirname, '%s_%s.png' % (time_str, name)))
-
 
 def get_array(model, image):
     image = image.resize(IMG_SIZE).convert('RGBA')
@@ -58,12 +50,10 @@ def get_array(model, image):
     save_image(dirname, new_image, 'sketch', time)
     return [origin, mask]
 
-
 def generate_random_image(size):
     color = '#' + ''.join(random.sample('0123456789ABCDEF', 8))
     background = Image.new('RGBA', size, color)
     return background
-
 
 def generate_image(model, sketch, mask, z, c):
     z = np.fromstring(z, dtype=np.float32).reshape((1, -1))

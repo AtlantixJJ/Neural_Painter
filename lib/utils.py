@@ -8,6 +8,11 @@ import tensorflow as tf
 import lib.ops as ops
 import skimage.io as io
 
+def partial(func, **kwargs):
+    def _func(*kargs):
+        return func(*kargs, **kwargs)
+    return _func
+
 def linear_interpolate(x_bg, x_ed, y_bg, y_ed, cur_x):
     """
     Scalar only.

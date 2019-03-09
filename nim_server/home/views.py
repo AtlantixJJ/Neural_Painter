@@ -30,7 +30,7 @@ def index(request):
 @csrf_exempt
 def input_image(request):
     form_data = request.POST
-    if request.method == 'POST' and form_data.has_key('sketch') and form_data.has_key('model'):
+    if request.method == 'POST' and 'sketch' in form_data and 'model' in form_data:
         try:
             model = form_data['model']
             if not api.model_exist(model):
@@ -55,7 +55,7 @@ def input_image(request):
 def srand(request):
     form_data = request.POST
     print(form_data)
-    if request.method == 'POST' and form_data.has_key('model'):
+    if request.method == 'POST' and 'model' in form_data:
         try:
             model = form_data['model']
             if not api.model_exist(model):

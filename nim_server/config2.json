@@ -27,7 +27,7 @@
             },
             "sery": "06",
             "field_name": "GGAnimeFace",
-            "model_dir": "~disk6/FewShotLearning/Neural_Painter/logs/simple_getchu",
+            "model_dir": "~/disk6/FewShotLearning/Neural_Painter/logs/simple_getchu/",
             "cgan": true
         }
     }
