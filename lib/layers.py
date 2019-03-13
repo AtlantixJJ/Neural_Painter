@@ -3,6 +3,15 @@ import tensorflow as tf
 from tensorflow.contrib import layers as L
 from lib import ops
 
+def default_batch_norm(inputs, training, data_format=""):
+  """Performs a batch normalization using a standard set of parameters."""
+  # We set fused=True for a significant performance boost. See
+  # https://www.tensorflow.org/performance/performance_guide#common_fused_ops
+  return tf.compat.v1.layers.batch_normalization(
+      inputs=inputs, axis=1 if data_format == 'channels_first' else 3,
+      momentum=_BATCH_NORM_DECAY, epsilon=_BATCH_NORM_EPSILON, center=True,
+      scale=True, training=training, fused=True)
+
 def instance_normalization(x):
     epsilon = 1e-9
 
@@ -46,8 +55,9 @@ def get_norm(name, x, method, training=None, reuse=False):
         # usually fail to produce any realistic result in GAN
         return instance_normalization(x)
     elif method.find("default") > -1:
-        # Newly added, seems to be inefficient
-        return tf.layers.batch_normalization(inputs=x, name=name + "_" + method, reuse=reuse, training=training, epsilon=1e-6)
+        with tf.variable_scope(name, reuse=reuse):
+            return default_batch_norm(x, training)
+        #return tf.layers.batch_normalization(inputs=x, name=name + "_" + method, reuse=reuse, training=training, epsilon=1e-6)
     elif method.find("contrib") > -1:
         # Common choice
         return tf.contrib.layers.batch_norm(inputs=x, scope=name + "_" + method, reuse=reuse, is_training=training, epsilon=1e-6)
@@ -71,14 +81,14 @@ def learned_sum(name, input, reuse=False):
         output = tf.reduce_sum(input * mulmap, axis=[1, 2])
     return output
 
-def conditional_batch_normalization(name_scope, inputs, conditions, training=True, is_projection=True, reuse=False, epsilon=1e-6, decay=0.99):
+def conditional_batch_normalization(name, inputs, conditions, training=True, is_project=True, reuse=False, epsilon=1e-6, decay=0.99):
     """
     conditions: [gamma, beta]
     """
 
-    with tf.variable_scope(name_scope, reuse=reuse):
+    with tf.variable_scope(name, reuse=reuse):
         size = inputs.get_shape().as_list()[-1]
-        p_dim = size if is_projection else 1
+        p_dim = size if is_project else 1
 
         w = tf.get_variable("weight", shape=[conditions.get_shape()[-1], p_dim * 2], initializer=tf.orthogonal_initializer)
 
@@ -183,35 +193,58 @@ def simple_residual_block(name, input, filter_size=3,
 
     input_dim = input.get_shape().as_list()[-1]
 
-    x = conv2d(name + "/conv1", input, input_dim, filter_size, 1,
-        spectral=spectral, update_collection=update_collection, reuse=reuse)
     x = norm_fn(name + "/bn1", x)
     x = activation_fn(x)
+    x = conv2d(name + "/conv1", input, input_dim, filter_size, 1,
+        spectral=spectral, update_collection=update_collection, reuse=reuse)
 
+    x = norm_fn(name + "/bn2", x)
+    x = activation_fn(x)
     x = conv2d(name + "/conv2", x, input_dim, filter_size, 1,
         spectral=spectral, update_collection=update_collection, reuse=reuse)
-    x = norm_fn(name + "/bn2", x)
 
     return input + x
 
-"""
-def upsample_residual_block(name, x_init, channels, use_bias=True, is_training=True, sn=False,):
-    with tf.variable_scope(scope):
-        with tf.variable_scope(name):
-            x = batch_norm(x_init, is_training)
-            x = relu(x)
-            x = deconv(x, channels, kernel=3, stride=2, use_bias=use_bias, sn=sn)
+def upsample_residual_block(name, x, dim, activation_fn=tf.nn.relu, norm_fn=None,
+    spectral=False, update_collection=None, reuse=False):
+    with tf.variable_scope(name, reuse=reuse):
+        base = tf.identity(x)
+        h, w, c = base.get_shape()[1:]
 
-        with tf.variable_scope('res2') :
-            x = batch_norm(x, is_training)
-            x = relu(x)
-            x = deconv(x, channels, kernel=3, stride=1, use_bias=use_bias, sn=sn)
+        #x_skip = deconv2d(name + "/skip", base, dim, 4, 2, spectral, update_collection, reuse)
+        x_skip = conv2d(name + "/skip", base, dim, 1, 1, spectral, update_collection, reuse)
+        x_skip = tf.image.resize_bilinear(x_skip, (h * 2, w * 2))
 
-        with tf.variable_scope('skip') :
-            x_init = deconv(x_init, channels, kernel=3, stride=2, use_bias=use_bias, sn=sn)
+        x = norm_fn(name + "/bn1", x)
+        x = activation_fn(x)
+        x = tf.image.resize_bilinear(x, (h * 2, w * 2))
+        x = conv2d(name + "/conv1", x, dim, 3, 1, spectral, update_collection, reuse)
+        #x = deconv2d(name + "/conv1", x, dim, 4, 2, spectral, update_collection, reuse)
 
-    return x + x_init
-"""
+        x = norm_fn(name + "/bn2", x)
+        x = activation_fn(x)
+        x = conv2d(name + "/conv2", x, dim, 3, 1, spectral, update_collection)
+
+    return x + x_skip
+
+def downsample_residual_block(name, x, dim, activation_fn=tf.nn.relu, norm_fn=None,
+    spectral=False, update_collection=None, reuse=False):
+    with tf.variable_scope(name, reuse=reuse):
+        base = tf.identity(x)
+
+        x_skip = conv2d(name + "/skip", base, dim, 1, 1, spectral, update_collection, reuse)
+        x_skip = tf.nn.avg_pool(x_skip, 2, 2, "VALID")
+
+        x = norm_fn(name + "/bn1", x)
+        x = activation_fn(x)
+        x = conv2d(name + "/conv1", x, dim, 3, 1, spectral, update_collection, reuse)
+
+        x = norm_fn(name + "/bn2", x)
+        x = activation_fn(x)
+        x = conv2d(name + "/conv2", x, dim, 3, 1, spectral, update_collection)
+        x = tf.nn.avg_pool(x, 2, 2, "VALID")
+
+    return x + x_skip
 
 def attention(name, x, ch, spectral_norm=True, update_collection=None, reuse=False):
     f = conv2d(name + "f_conv", x, ch // 8, 1, 1, spectral_norm, update_collection) # [bs, h, w, c']

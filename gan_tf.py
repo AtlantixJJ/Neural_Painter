@@ -45,9 +45,9 @@ tf.app.flags.DEFINE_boolean("cbn_project", True, "If to project to depth dim")
 
 tf.app.flags.DEFINE_boolean("use_cache", False, "If to use cache to prevent cactastrophic forgetting.")
 tf.app.flags.DEFINE_integer("gpu", 4, "which gpu to use")
-tf.app.flags.DEFINE_float("g_lr", 2e-4, "learning rate")
+tf.app.flags.DEFINE_float("g_lr", 1e-4, "learning rate")
 tf.app.flags.DEFINE_float("d_lr", 4e-4, "learning rate")
-tf.app.flags.DEFINE_integer("batch_size", 64, "training batch size")
+tf.app.flags.DEFINE_integer("batch_size", 128, "training batch size")
 tf.app.flags.DEFINE_integer("num_iter", 200000, "training iteration")
 tf.app.flags.DEFINE_integer("dec_iter", 100000, "training iteration")
 tf.app.flags.DEFINE_integer("disc_iter", 2, "discriminator training iter")
@@ -110,7 +110,7 @@ def main():
 
     disc_real, real_cls_logits = disc_model(x_real, update_collection=None)
     disc_model.set_reuse()
-    disc_fake, fake_cls_logits = disc_model(x_fake, update_collection="no_ops")
+    disc_fake, fake_cls_logits = disc_model(x_fake, update_collection=None)#"no_ops")
     disc_model.disc_real        = disc_real       
     disc_model.disc_fake        = disc_fake       
     disc_model.real_cls_logits = real_cls_logits
@@ -142,7 +142,7 @@ def main():
         loss.classifier_loss(gen_model, disc_model, x_real, c_label, c_noise,
         weight=1.0)
 
-    loss.hinge_loss(gen_model, disc_model, adv_weight=1.0)
+    loss.hinge_loss(gen_model, disc_model, adv_weight=dataset.class_num)
     
     int_sum_op = tf.summary.merge(int_sum_op)
 

@@ -56,40 +56,31 @@ def hg_mask(size, n_attr):
     return gen_model, disc_model
 
 def simple(size, n_attr):
-    d_map_depth = 32
-    if size == 64:
-        d_layers = 4
-        g_layers = 4
-    elif size == 128:
-        d_layers = 5
-        g_layers = 5
-
     gen_model = model.simple.SimpleConvolutionGenerator(
         name="G",
-        n_layer=g_layers
-        )
+        out_size=size)
     disc_model = model.simple.SimpleConvolutionDiscriminator(
         name="D",
-        map_depth=d_map_depth,
-        n_layer=d_layers,
-        n_attr=n_attr
-        )
+        input_size=size,
+        n_attr=n_attr)
     return gen_model, disc_model
 
 def simple_mask(size, n_attr):
-    d_map_depth = 32
+    d_map_depth = 64
     if size == 64:
+        map_size = 4
         d_layers = 5
         g_layers = 4
     elif size == 128:
+        map_size = 4
         d_layers = 6
         g_layers = 5
         
     gen_model = model.simple.MaskConvolutionGenerator(
         name="G",
+        map_size=map_size,
         mask_num=9,
-        n_layer=g_layers
-        )
+        n_layer=g_layers)
     disc_model = model.simple.SimpleConvolutionDiscriminator(
         name="D",
         map_depth=d_map_depth,
@@ -98,32 +89,11 @@ def simple_mask(size, n_attr):
     return gen_model, disc_model
 
 def deep(size, n_attr):
-    g_map_size = 8
-    d_map_depth = 32
-    map_depth = 512
-    if size == 64:
-        n_enlarge = 3
-        d_layers = 6
-        d_nres = 2
-        g_layers = 6
-    elif size == 128:
-        n_enlarge = 4
-        d_layers = 8
-        d_nres = 2
-        g_layers = 8
-
-    gen_model = model.deep.DeepGenerator(
+    gen_model = model.deep.ResidualGenerator(
         name="G",
-        map_depth=map_depth,
-        map_size=g_map_size,
-        n_enlarge=n_enlarge,
-        n_layer=g_layers
-        )
-    disc_model = model.deep.DeepDiscriminator(
+        out_size=size)
+    disc_model = model.deep.ResidualDiscriminator(
         name="D",
-        map_depth=d_map_depth,
-        n_res=d_nres,
-        n_layer=d_layers,
-        n_attr=n_attr
-        )
+        n_attr=n_attr,
+        input_size=size)
     return gen_model, disc_model

@@ -3,7 +3,7 @@ sys.path.insert(0, '..')
 sys.path.insert(0, '.')
 import tensorflow as tf
 from tensorflow import layers
-from lib import files
+from lib import files, adabound
 
 class SequentialNN(object):
     """
@@ -53,6 +53,7 @@ class SequentialNN(object):
         """
         Automatically add scope, and concat input
         """
+        print("=> Building " + self.name + " (reuse=" + str(self.reuse) + ")")
         with tf.variable_scope(self.name):
             x = input
             if type(input) is list:
@@ -79,6 +80,12 @@ class SequentialNN(object):
         self.update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS, scope=self.name)
 
         with tf.control_dependencies(self.update_ops):
+            """
+            self.train_op = adabound.AdaBoundOptimizer(
+                learning_rate=4e-4,
+                final_lr=1e-3, beta1=0.9, beta2=0.999,
+                gamma=1e-3, epsilon=1e-8).minimize(self.cost, var_list=self.vars, colocate_gradients_with_ops=True)
+            """
             self.train_op = tf.train.AdamOptimizer(
                 learning_rate=lr,
                 beta1=0.,

@@ -5,7 +5,7 @@ import tensorflow as tf
 
 from trainer.base_trainer import BaseTrainer
 import numpy as np
-from lib import ops, utils, files, cache
+from lib import ops, utils, files, cache, adabound
 import skimage.io as io
 import time, tqdm
 
@@ -68,6 +68,12 @@ class BaseGANTrainer(BaseTrainer):
         self.disc_model.build_train_op(self.d_lr)
         if self.use_cache:
             with tf.control_dependencies(self.gen_model.update_ops):
+                """
+                self.sample_train_op = adabound.AdaBoundOptimizer(
+                    learning_rate=4e-4,
+                    final_lr=1e-3, beta1=0.9, beta2=0.999,
+                    gamma=1e-3, epsilon=1e-8).minimize(self.sample_cost, var_list=self.disc_model.vars, colocate_gradients_with_ops=True)
+                """
                 self.sample_train_op = tf.train.AdamOptimizer(
                     learning_rate=self.lr,
                     beta1=0.5,

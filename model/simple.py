@@ -4,50 +4,60 @@ from model import basic
 import numpy as np
 
 class SimpleConvolutionGenerator(basic.SequentialNN):
-    def __init__(self, map_size=4, map_depth=1024, n_layer=5, out_dim=3, spectral_norm=True, **kwargs):
+    def __init__(self, map_size=4, map_depth=64, out_size=128, out_dim=3, spectral_norm=True, cbn_project=True, **kwargs):
         """
         params:
         map_size:   the edge size of noise map
-        map_depth:  initial depth of first feature map
+        map_depth:  smallest feature map depth (a unit)
         n_layer:   every one more convolution layer indicates a double in resolution
         """
         super(SimpleConvolutionGenerator, self).__init__(**kwargs)
         
         self.spectral_norm = spectral_norm
         self.out_dim = out_dim
+        self.out_size = out_size
         self.map_size = map_size
         self.map_depth = map_depth
-        self.n_layer = n_layer
-        self.cbn_project = False
+        self.n_layer = int(np.log2(out_size)) - int(np.log2(map_size)) - 1
+        self.cbn_project = cbn_project
+
+        # use different output kernel size for different output size
+        if self.out_size <= 32: self.ksize = 3
+        elif self.out_size <= 64: self.ksize = 5
+        elif self.out_size <= 128: self.ksize = 7
+        else: self.ksize = 9
+            
+    def get_depth(self, i):
+        """
+        Given the layer index (start from 0 to self.n_layer), return the map depth
+        """
+        return self.map_depth * (2 ** (self.n_layer - i))
 
     def build_inference(self, input, update_collection="no_ops"):
-        if self.n_layer <= 5: ksize = 5
-        elif self.n_layer <= 6: ksize = 7
-        else: ksize = 9
+        # normal bn
+        #bn_partial = utils.partial(layers.get_norm, method=self.norm_mtd, training=self.training, reuse=self.reuse)
+        # conditional bn: must use with conditional GAN
+        bn_partial = utils.partial(layers.conditional_batch_normalization, conditions=input, training=self.training, is_project=self.cbn_project, reuse=self.reuse)
+        # partial function: fill in some argument in advance, and only (name, input) is needed at call time
 
-        bn_partial = utils.partial(layers.get_norm, method=self.norm_mtd, training=self.training, reuse=self.reuse)
-
-        # ReLU is default in this function
         x = layers.linear("fc1", input, 
-                (self.map_size ** 2) * self.map_depth,
+                (self.map_size ** 2) * self.get_depth(0),
                 self.spectral_norm, update_collection, self.reuse)
-
-        x = tf.reshape(x, [-1, self.map_size, self.map_size, self.map_depth])
-        #x = layers.conditional_batch_normalization("cbn", x, input, self.cbn_project, self.reuse)
+        x = tf.reshape(x, [-1, self.map_size, self.map_size, self.get_depth(0)])
         x = bn_partial('fc1/bn', x)
         x = tf.nn.relu(x)
+        print("=> fc1:\t" + str(x.get_shape()))
 
-        for i in range(1, self.n_layer + 1, 1):
-            name = "deconv%d" % i
-            x = layers.deconv2d(name, x, int(self.map_depth // (2 ** i)), 4, 2,
+        for i in range(self.n_layer + 1):
+            name = "deconv%d" % (i+1)
+            x = layers.deconv2d(name, x, self.get_depth(i), 4, 2,
                 self.spectral_norm, update_collection, self.reuse)
             x = bn_partial(name + "/bn", x)
-            #x = layers.conditional_batch_normalization(name + "cbn", x, input, self.cbn_project, self.reuse)
             x = tf.nn.relu(x)
-            print(x.get_shape())
+            print("=> " + name + ":\t" + str(x.get_shape()))
 
-        x = layers.conv2d("conv1", x, self.out_dim, ksize, 1, self.spectral_norm, update_collection, self.reuse)
-
+        x = layers.conv2d("conv1", x, self.out_dim, self.ksize, 1, self.spectral_norm, update_collection, self.reuse)
+        print("=> conv1:\t" + str(x.get_shape()))
         self.out = tf.nn.tanh(x)
 
         return self.out
@@ -141,58 +151,77 @@ class MaskConvolutionGenerator(basic.SequentialNN):
         return self.out
 
 class SimpleConvolutionDiscriminator(basic.SequentialNN):
-    def __init__(self, n_layer=5, n_attr=34, map_depth=64, spectral_norm=True, **kwargs):
+    def __init__(self, n_attr=34, map_depth=64, map_size=4, input_size=128, spectral_norm=True, **kwargs):
         super(SimpleConvolutionDiscriminator, self).__init__(**kwargs)
 
         self.spectral_norm = spectral_norm
+        self.input_size = input_size
+        self.map_size = map_size
         self.map_depth = map_depth
-        self.n_layer = n_layer
+        self.n_layer = int(np.log2(input_size)) - int(np.log2(map_size)) - 1
         self.n_attr = n_attr
 
-    def build_inference(self, input, update_collection="no_ops"):
-        #bn_partial = utils.partial(layers.get_norm, training=self.training, reuse=self.reuse)
-        if self.n_layer <= 5: ksize = 5
-        elif self.n_layer <= 6: ksize = 7
-        else: ksize = 9
+        # use different input kernel size for different input size
+        if self.input_size <= 32: self.ksize = 3
+        elif self.input_size <= 64: self.ksize = 5
+        elif self.input_size <= 128: self.ksize = 7
+        else: self.ksize = 9
 
-        x = layers.conv2d("conv1", input, self.map_depth, ksize, 1,
+    def get_depth(self, i):
+        """
+        Given the layer index (start from 0 to self.n_layer), return the map depth
+        """
+        return self.map_depth * (2 ** i)
+
+    def build_inference(self, input, update_collection=None):
+        # usually discriminator do not use bn
+        #bn_partial = utils.partial(layers.get_norm, training=self.training, reuse=self.reuse)
+
+        x = layers.conv2d("main/conv1", input, self.get_depth(0), self.ksize, 1,
                     self.spectral_norm, update_collection, self.reuse)
         x = layers.LeakyReLU(x)
+        print("=> main/conv1:\t" + str(x.get_shape()))
 
-        self.mid_layers = self.n_layer // 2
+        self.mid_layers = self.n_layer // 2 + 1
 
         for i in range(self.mid_layers):
-            x = layers.conv2d("main_conv%d" % (i+2), x,
-                self.map_depth * (2 ** (i+1)), 4, 2,
+            name = "main/conv%d" % (i+2)
+            x = layers.conv2d(name, x,
+                self.get_depth(i), 4, 2,
                 self.spectral_norm, update_collection, self.reuse)
             x = layers.LeakyReLU(x)
-            print(x.get_shape())
+            print("=> " + name + ":\t" + str(x.get_shape()))
 
         class_branch = tf.identity(x)
 
-        for i in range(self.mid_layers, self.n_layer):
-            x = layers.conv2d("disc_conv%d" % (i+2), x,
-                self.map_depth * (2 ** (i+1)), 4, 2,
+        for i in range(self.mid_layers, self.n_layer + 1):
+            name = "disc/conv%d" % (i+2)
+            x = layers.conv2d(name, x,
+                self.get_depth(i), 4, 2,
                 self.spectral_norm, update_collection, self.reuse)
             x = layers.LeakyReLU(x)
-            print(x.get_shape())
-        
-        # discrimination branch
-        x = layers.learned_sum("ls_disc", x, self.reuse)
+            print("=> " + name + ":\t" + str(x.get_shape()))
 
-        for i in range(self.mid_layers, self.n_layer):
-            class_branch = layers.conv2d("class_conv%d" % (i+2), class_branch,
-                self.map_depth * (2 ** (i+1)), 4, 2,
+        for i in range(self.mid_layers, self.n_layer + 1):
+            name = "class/conv%d" % (i+2)
+            class_branch = layers.conv2d(name, class_branch,
+                self.get_depth(i), 4, 2,
                 self.spectral_norm, update_collection, self.reuse)
             class_branch = layers.LeakyReLU(class_branch)
-            print(x.get_shape())
+            print("=> " + name + ":\t" + str(class_branch.get_shape()))
 
-        class_branch = layers.learned_sum("ls_class", class_branch, self.reuse)
+        class_branch = tf.reduce_mean(class_branch, axis=[1, 2])
+        print("=> class:\t" + str(class_branch.get_shape()))
+        x = tf.reduce_mean(x, axis=[1, 2])
+        print("=> disc:\t" + str(x.get_shape()))
 
-        self.disc_out = layers.linear("fc_disc", x, 1,
+        self.disc_out = layers.linear("disc/fc", x, 1,
                         self.spectral_norm, update_collection, self.reuse)
 
-        self.cls_out = layers.linear("fc_cls", class_branch, self.n_attr, 
+        self.cls_out = layers.linear("class/fc", class_branch, self.n_attr, 
                     self.spectral_norm, update_collection, self.reuse)
-        
+
+        print("=> class:\t" + str(self.cls_out.get_shape()))
+        print("=> disc:\t" + str(self.disc_out.get_shape()))
+
         return self.disc_out, self.cls_out
