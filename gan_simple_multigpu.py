@@ -30,7 +30,6 @@ tf.app.flags.DEFINE_boolean("debug", False, "Whether to show debug messages")
 tf.app.flags.DEFINE_boolean("reload", False, "If to reload from npz param. Incompatible with --resume.")
 tf.app.flags.DEFINE_boolean("resume", False, "If to resume from previous training. Incompatible with --resume.")
 tf.app.flags.DEFINE_integer("save_iter", 20000, "saving iteration interval")
-tf.app.flags.DEFINE_integer("num_worker", 1, "threads")
 tf.app.flags.DEFINE_string("train_dir", "logs/simple_getchu", "log dir")
 
 # ----- model type flags ------ #
@@ -45,7 +44,7 @@ tf.app.flags.DEFINE_integer("sn", 1, "0 for no spectral norm| 1 for noise spectr
 # ------ train control flags ----- #
 
 tf.app.flags.DEFINE_boolean("use_cache", False, "If to use cache to prevent cactastrophic forgetting.")
-tf.app.flags.DEFINE_integer("gpu", 4, "which gpu to use")
+tf.app.flags.DEFINE_string("gpu", "4", "which gpu to use")
 tf.app.flags.DEFINE_float("g_lr", 1e-4, "learning rate")
 tf.app.flags.DEFINE_float("d_lr", 4e-4, "learning rate")
 tf.app.flags.DEFINE_integer("batch_size", 128, "training batch size")
@@ -57,9 +56,10 @@ tf.app.flags.DEFINE_integer("gen_iter", 1, "generative training iter")
 FLAGS = tf.app.flags.FLAGS
 TFLAGS = {}
 
-NUM_WORKER = FLAGS.num_worker
+NUM_GPU = len(FLAGS.gpu.split(","))
+
 os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
-os.environ["CUDA_VISIBLE_DEVICES"] = str(FLAGS.gpu)
+os.environ["CUDA_VISIBLE_DEVICES"] = FLAGS.gpu
 
 def main():
     size = FLAGS.img_size
@@ -108,17 +108,34 @@ def main():
     disc_model.cbn_project = FLAGS.cbn_project
     disc_model.spectral_norm = FLAGS.sn
     
-    x_fake = gen_model(gen_input, update_collection=None)
-    gen_model.set_reuse()
-    gen_model.x_fake = x_fake
+    def tower(gen_input, x_real, c_label=None, c_noise=None, update_collection=None):
+        gen_model.cost = disc_model.cost = 0
 
-    disc_real, real_cls_logits = disc_model(x_real, update_collection=None)
-    disc_model.set_reuse()
-    disc_fake, fake_cls_logits = disc_model(x_fake, update_collection=None)
-    disc_model.disc_real        = disc_real       
-    disc_model.disc_fake        = disc_fake       
-    disc_model.real_cls_logits = real_cls_logits
-    disc_model.fake_cls_logits = fake_cls_logits
+        x_fake = gen_model(gen_input, update_collection=update_collection)
+        gen_model.set_reuse()
+        gen_model.x_fake = x_fake
+
+        disc_real, real_cls_logits = disc_model(x_real, update_collection=update_collection)
+        disc_model.set_reuse()
+        disc_fake, fake_cls_logits = disc_model(x_fake, update_collection=update_collection)
+        disc_model.disc_real        = disc_real       
+        disc_model.disc_fake        = disc_fake       
+        disc_model.real_cls_logits = real_cls_logits
+        disc_model.fake_cls_logits = fake_cls_logits
+
+        if FLAGS.cgan:
+            loss.classifier_loss(gen_model, disc_model, x_real, c_label, c_noise,
+            weight=1.0)
+
+        loss.hinge_loss(gen_model, disc_model, adv_weight=dataset.class_num)
+
+        #params = tf.trainable_variables()
+        #gen_model.vars = [i for i in params if gen_model.name in i.name]
+        #disc_model.vars = [i for i in params if disc_model.name in i.name]
+        return gen_model.cost, disc_model.cost
+
+    gen_model.cost, disc_model.cost = ops.make_losslist_parallel(tower, NUM_GPU,
+        gen_input=gen_input, x_real=x_real, c_label=c_label, c_noise=c_noise, update_collection=None)
 
     int_sum_op = []
     
@@ -142,12 +159,6 @@ def main():
     grid_x_real = ops.get_grid_image_summary(x_real, 4)
     int_sum_op.append(tf.summary.image("real image", grid_x_real))
 
-    if FLAGS.cgan:
-        loss.classifier_loss(gen_model, disc_model, x_real, c_label, c_noise,
-        weight=1.0)
-
-    loss.hinge_loss(gen_model, disc_model, adv_weight=dataset.class_num)
-    
     int_sum_op = tf.summary.merge(int_sum_op)
 
     ModelTrainer = trainer.base_gantrainer.BaseGANTrainer(

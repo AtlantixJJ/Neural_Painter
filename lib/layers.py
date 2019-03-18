@@ -81,7 +81,7 @@ def learned_sum(name, input, reuse=False):
         output = tf.reduce_sum(input * mulmap, axis=[1, 2])
     return output
 
-def conditional_batch_normalization(name, inputs, conditions, training=True, is_project=True, reuse=False, epsilon=1e-6, decay=0.99):
+def conditional_batch_normalization(name, inputs, conditions, spectral_norm=0, update_collection=None, training=True, is_project=True, reuse=False, epsilon=1e-6, decay=0.99):
     """
     conditions: [gamma, beta]
     """
@@ -91,6 +91,14 @@ def conditional_batch_normalization(name, inputs, conditions, training=True, is_
         p_dim = size if is_project else 1
 
         w = tf.get_variable("weight", shape=[conditions.get_shape()[-1], p_dim * 2], initializer=tf.orthogonal_initializer)
+        """
+        if spectral_norm > 0:
+            if spectral_norm == 1: # spectral norm weight from noise vector
+                u = None
+            elif spectral_norm == 2: #spectral norm weight from data vector
+                u = inputs
+            w = ops.spectral_normed_weight(w, u=u, update_collection=update_collection)
+        """
 
         projections = tf.reshape(tf.matmul(conditions, w), [-1, 2, p_dim])
 
@@ -133,7 +141,15 @@ def conv2d(name, input, output_dim, filter_size=3, stride=1,
         w = tf.get_variable("kernel", shape=[filter_size, filter_size, input.get_shape()[-1], output_dim], initializer=tf.orthogonal_initializer)
         b = tf.get_variable("bias", [output_dim], initializer=tf.constant_initializer(.0))
 
-        if spectral: w = ops.spectral_normed_weight(w, update_collection=update_collection)
+        input_dim = input.get_shape()[-1]
+
+        if spectral > 0:
+            if spectral == 1: # spectral norm weight from noise vector
+                u = None
+            elif spectral == 2: #spectral norm weight from data vector
+                u = tf.image.random_crop(input, [filter_size, filter_size, input_dim])
+                u = tf.reshape(u, [1, -1])
+            w = ops.spectral_normed_weight(w, u=u, update_collection=update_collection)
 
         x = tf.nn.conv2d(input, filter=w, strides=[1, stride, stride, 1], padding="SAME") + b
 
@@ -149,10 +165,16 @@ def deconv2d(name, input, output_dim, filter_size=3, stride=1,
     with tf.variable_scope(name, reuse=reuse):
         w = tf.get_variable("kernel", shape=[filter_size, filter_size, output_dim,  input.get_shape()[-1]], initializer=tf.orthogonal_initializer)
         b = tf.get_variable("bias", [output_dim], initializer=tf.constant_initializer(0))
-
-        if spectral: w = ops.spectral_normed_weight(w, update_collection=update_collection)
         
-        H, W = input.get_shape().as_list()[1:3]
+        H, W, C = input.get_shape().as_list()[1:]
+
+        if spectral > 0:
+            if spectral == 1: # spectral norm weight from noise vector
+                u = None
+            elif spectral == 2: #spectral norm weight from data vector
+                u = tf.image.random_crop(input, [1, 1, C])
+                u = tf.reshape(u, [1, -1])
+            w = ops.spectral_normed_weight(w, u=u, update_collection=update_collection)
 
         x = tf.nn.conv2d_transpose(input,
             filter=w,
@@ -162,7 +184,7 @@ def deconv2d(name, input, output_dim, filter_size=3, stride=1,
 
     return x
 
-def linear(name, input, output_dim, spectral=False, update_collection=None, reuse=False):
+def linear(name, input, output_dim, spectral=0, update_collection=None, reuse=False):
     """
     Get a linear layer,while the initializer is a random_uniform_initializer.
     """
@@ -170,7 +192,12 @@ def linear(name, input, output_dim, spectral=False, update_collection=None, reus
         w = tf.get_variable("weight", shape=[input.get_shape()[-1], output_dim], initializer=tf.orthogonal_initializer)
         b = tf.get_variable("bias", [output_dim], initializer=tf.constant_initializer(.0))
 
-        if spectral: w = ops.spectral_normed_weight(w, update_collection=update_collection)
+        if spectral > 0:
+            if spectral == 1: # spectral norm weight from noise vector
+                u = None
+            elif spectral == 2: #spectral norm weight from data vector
+                u = input[0:1]
+            w = ops.spectral_normed_weight(w, u=u, update_collection=update_collection)
 
         x = tf.matmul(input, w) + b
     
@@ -206,20 +233,22 @@ def simple_residual_block(name, input, filter_size=3,
     return input + x
 
 def upsample_residual_block(name, x, dim, activation_fn=tf.nn.relu, norm_fn=None,
-    spectral=False, update_collection=None, reuse=False):
+    spectral=1, update_collection=None, reuse=False):
     with tf.variable_scope(name, reuse=reuse):
         base = tf.identity(x)
         h, w, c = base.get_shape()[1:]
 
-        #x_skip = deconv2d(name + "/skip", base, dim, 4, 2, spectral, update_collection, reuse)
-        x_skip = conv2d(name + "/skip", base, dim, 1, 1, spectral, update_collection, reuse)
-        x_skip = tf.image.resize_bilinear(x_skip, (h * 2, w * 2))
+        x_skip = deconv2d(name + "/skip", base, dim, 2, 2, spectral, update_collection, reuse)
+        #x_skip = tf.image.resize_bilinear(x_skip, (h * 2, w * 2))
+        #x_skip = tf.image.resize_nearest_neighbor(base, (h * 2, w * 2))
+        #x_skip = conv2d(name + "/skip", x_skip, dim, 3, 1, spectral, update_collection, reuse)
 
         x = norm_fn(name + "/bn1", x)
         x = activation_fn(x)
-        x = tf.image.resize_bilinear(x, (h * 2, w * 2))
-        x = conv2d(name + "/conv1", x, dim, 3, 1, spectral, update_collection, reuse)
-        #x = deconv2d(name + "/conv1", x, dim, 4, 2, spectral, update_collection, reuse)
+        #x = tf.image.resize_bilinear(x, (h * 2, w * 2))
+        #x = tf.image.resize_nearest_neighbor(x, (h * 2, w * 2))
+        #x = conv2d(name + "/conv1", x, c, 3, 1, spectral, update_collection, reuse)
+        x = deconv2d(name + "/conv1", x, dim, 4, 2, spectral, update_collection, reuse)
 
         x = norm_fn(name + "/bn2", x)
         x = activation_fn(x)
@@ -231,19 +260,20 @@ def downsample_residual_block(name, x, dim, activation_fn=tf.nn.relu, norm_fn=No
     spectral=False, update_collection=None, reuse=False):
     with tf.variable_scope(name, reuse=reuse):
         base = tf.identity(x)
-
-        x_skip = conv2d(name + "/skip", base, dim, 1, 1, spectral, update_collection, reuse)
-        x_skip = tf.nn.avg_pool(x_skip, 2, 2, "VALID")
-
+        c = base.get_shape()[-1]
+        
+        x_skip = tf.nn.avg_pool(base, 2, 2, "VALID")
+        x_skip = conv2d(name + "/skip", x_skip, dim, 3, 1, spectral, update_collection, reuse)
+        
         x = norm_fn(name + "/bn1", x)
         x = activation_fn(x)
-        x = conv2d(name + "/conv1", x, dim, 3, 1, spectral, update_collection, reuse)
+        x = conv2d(name + "/conv1", x, c, 3, 1, spectral, update_collection, reuse)
+        x = tf.nn.avg_pool(x, 2, 2, "VALID")
 
         x = norm_fn(name + "/bn2", x)
         x = activation_fn(x)
         x = conv2d(name + "/conv2", x, dim, 3, 1, spectral, update_collection)
-        x = tf.nn.avg_pool(x, 2, 2, "VALID")
-
+        
     return x + x_skip
 
 def attention(name, x, ch, spectral_norm=True, update_collection=None, reuse=False):

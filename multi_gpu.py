@@ -130,7 +130,7 @@ def main():
         gen_model.set_reuse()
         gen_model.x_fake = x_fake
 
-        disc_real, real_cls_logits = disc_model(x_real, update_collection="no_ops")
+        disc_real, real_cls_logits = disc_model(x_real, update_collection=update_collection)
         disc_model.set_reuse()
         disc_fake, fake_cls_logits = disc_model(x_fake, update_collection=update_collection)
         disc_model.disc_real        = disc_real       

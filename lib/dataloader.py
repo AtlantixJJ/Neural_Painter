@@ -429,6 +429,20 @@ class CelebADataset(FileDataset):
     def __init__(self, data_path, img_size=(64, 64), npy_dir=None):
         super(CelebADataset, self).__init__(data_path, img_size, npy_dir)
 
+    def access(self, idx):
+        """
+        Deprecated
+        """
+        if self.use_zip:
+            img = np.asarray(Image.open(BytesIO(self.data_file.read(self.files[idx]))))
+        else:
+            img_path = os.path.join(self.data_path, self.files[idx])
+            img = np.asarray(Image.open(open(img_path, "rb")))
+
+        img = img[50:50+128, 25:25+128]
+
+        return self.transform(img)
+
     # 函数将filename对应的图片文件读进来
     def _parse_function(self, filename, label):
         if self.use_zip:

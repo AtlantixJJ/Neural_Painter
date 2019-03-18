@@ -14,7 +14,9 @@ class ResidualGenerator(SimpleConvolutionGenerator):
     
     def build_inference(self, input, update_collection=None):
         #bn_partial = utils.partial(layers.get_norm, method=self.norm_mtd, training=self.training, reuse=self.reuse)
-        bn_partial = utils.partial(layers.conditional_batch_normalization, conditions=input, training=self.training, is_project=self.cbn_project, reuse=self.reuse)
+        bn_partial = utils.partial(layers.conditional_batch_normalization,
+            spectral_norm=self.spectral_norm, update_collection=update_collection,
+            conditions=input, training=self.training, is_project=self.cbn_project, reuse=self.reuse)
 
         x = layers.linear("fc1", input, 
                 (self.map_size ** 2) * self.get_depth(0),

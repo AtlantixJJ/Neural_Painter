@@ -176,6 +176,51 @@ def get_illumination_disturb():
 ##### TensorFlow Operations ######
 ##################################
 
+def make_parallel(fn, num_gpus, **kwargs):
+    in_splits = {}
+    for k, v in kwargs.items():
+        in_splits[k] = tf.split(v, num_gpus)
+
+    out_split = []
+    for i in range(num_gpus):
+        with tf.device(tf.DeviceSpec(device_type="GPU", device_index=i)):
+            with tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
+                out_split.append(fn(**{k : v[i] for k, v in in_splits.items()}))
+
+    return tf.concat(out_split, axis=0)
+
+def make_losslist_parallel(fn, num_gpus, **kwargs):
+    in_splits = {}
+    for k, v in kwargs.items():
+        if type(v) is tf.Tensor:
+            # tensor: split averagely to number of gpu
+            in_splits[k] = tf.split(v, num_gpus)
+        elif type(v) is list:
+            # list of tensors: split each
+            gpu_list = []
+            for item in v:
+                gpu_list.append(tf.split(item, num_gpus))
+            in_splits[k] = []
+            for i in range(num_gpus):
+                in_splits[k].append([gpu_list[j][i] for j in range(len(gpu_list))])
+        else:
+            # normal arguments
+            in_splits[k] = [v] * num_gpus
+
+    out_losses = []
+    for i in range(num_gpus):
+        with tf.device(tf.DeviceSpec(device_type="GPU", device_index=i)):
+            #with tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
+            in_kwargs = {k : v[i] for k, v in in_splits.items()}
+            #print(in_kwargs)
+            loss_list = fn(**in_kwargs)
+            for i in range(len(loss_list)):
+                if len(out_losses) <= i:
+                    out_losses.append([])
+                out_losses[i].append(loss_list[i])
+
+    return [tf.add_n(loss_gpu) for loss_gpu in out_losses]
+
 def debug_tensor(x, msg=None):
     """
     Print max, min value of an tensor
