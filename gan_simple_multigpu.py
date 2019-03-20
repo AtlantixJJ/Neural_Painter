@@ -109,6 +109,9 @@ def main():
     disc_model.spectral_norm = FLAGS.sn
     
     def tower(gen_input, x_real, c_label=None, c_noise=None, update_collection=None):
+        """
+        The loss function builder of gen and disc
+        """
         gen_model.cost = disc_model.cost = 0
 
         x_fake = gen_model(gen_input, update_collection=update_collection)

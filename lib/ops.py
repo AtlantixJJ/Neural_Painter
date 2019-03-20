@@ -97,29 +97,51 @@ def get_random(kind, shape):
         del tmp
         return res
 
-    def random_getchu_restricted(shape):
+    def random_getchu_restricted(shape, boolean=False):
         """
         Return a generated probability
         """
         res = np.random.rand(*shape)
         stList = [0, 13, 15, 18, 19, 20, 21, 22, 23, 24, 34]
+        res = []
+        for j in range(shape[0]):
+            vec = np.random.rand(shape[1])
+            for i in range(len(stList) - 1):
+                if stList[i+1] - stList[i] <= 1:
+                    # single attribute is rarely set in original dataset, so here the probability also need to be lowered
+                    vec[stList[i]] = vec[stList[i]] ** 2
+                    if boolean:
+                        vec[stList[i]] = float(vec[stList[i]] > 0.5)
+                else:
+                    if boolean:
+                        ind = vec[stList[i]: stList[i+1]].argmax()
+                        vec[stList[i]: stList[i+1]] = 0
+                        vec[stList[i] + ind] = 1
+                    else:
+                        # normalize to probability 1
+                        vec[stList[i]: stList[i+1]] /= vec[stList[i]: stList[i+1]].sum()
+        
+        """
         for i in range(len(stList)-1):
             # skip normalization of switch variable
             if stList[i+1] - stList[i] <= 1: continue
             for j in range(shape[0]):
                 res[j, stList[i]: stList[i+1]] /= res[j, stList[i]: stList[i+1]].sum()
-        return res
+        """
+        return np.stack(res, 0)
 
     if kind == "uniform":
         return np.random.uniform(-1, 1, shape)
     elif kind == "normal":
-        return np.random.normal(loc=0.0, scale=1.0, size=shape).astype("float32")
+        return np.random.normal(loc=0.0, scale=2.0, size=shape).astype("float32")
     elif kind == "boolean":
         return np.random.uniform(0, 1, shape).round()
     elif kind == "onehot":
         return random_onehot(shape)
     elif kind == "getchu_continuous":
         return random_getchu_restricted(shape)
+    elif kind == "getchu_boolean":
+        return random_getchu_restricted(shape, True)
     elif kind == "truncate_normal":
         return random_truncate_normal(shape)
     else:
@@ -175,6 +197,9 @@ def get_illumination_disturb():
 
 ##### TensorFlow Operations ######
 ##################################
+
+def hw_flatten(x) :
+    return tf.reshape(x, shape=[x.shape[0], -1, x.shape[-1]])
 
 def make_parallel(fn, num_gpus, **kwargs):
     in_splits = {}

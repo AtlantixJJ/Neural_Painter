@@ -1,16 +1,51 @@
+"""
+Complex tensorflow operations, as a layer.
+"""
 import tensorflow as tf
-
 from tensorflow.contrib import layers as L
 from lib import ops
 
-def default_batch_norm(inputs, training, data_format=""):
-  """Performs a batch normalization using a standard set of parameters."""
-  # We set fused=True for a significant performance boost. See
-  # https://www.tensorflow.org/performance/performance_guide#common_fused_ops
-  return tf.compat.v1.layers.batch_normalization(
-      inputs=inputs, axis=1 if data_format == 'channels_first' else 3,
-      momentum=_BATCH_NORM_DECAY, epsilon=_BATCH_NORM_EPSILON, center=True,
-      scale=True, training=training, fused=True)
+def default_batch_norm(name, inputs, phase='default', training=True, reuse=False, epsilon=1e-6, decay=0.99):
+    """
+    conditions: [gamma, beta].
+    """
+
+    with tf.variable_scope(name, reuse=reuse):
+        size = inputs.get_shape().as_list()[-1]
+
+        with tf.variable_scope(phase, reuse=tf.AUTO_REUSE):
+            population_mean = tf.get_variable(
+                'moving_mean', [size],
+                initializer=tf.zeros_initializer(), trainable=False)
+            population_var = tf.get_variable(
+                'moving_var', [size],
+                initializer=tf.ones_initializer(), trainable=False)
+
+        gamma = tf.get_variable('gamma', [size], initializer=tf.ones_initializer(), trainble=True)
+        beta = tf.get_variable('beta', [size], initializer=tf.zeros_initializer(), trainble=True)
+
+        if len(inputs.get_shape()) == 4:
+            batch_mean, batch_var = tf.nn.moments(inputs, [0, 1, 2])
+            gamma = tf.reshape(gamma, [-1, 1, 1, size])
+            beta = tf.reshape(gamma, [-1, 1, 1, size])
+        elif len(inputs.get_shape()) == 2:
+            batch_mean, batch_var = tf.nn.moments(inputs, [0])
+            gamma = tf.reshape(gamma, [-1, size])
+            beta = tf.reshape(gamma, [-1, size])
+
+        cond_new_pm = tf.cond(training,
+            true_fn=lambda: population_mean * decay + batch_mean * (1 - decay),
+            false_fn=lambda: population_mean)
+        cond_new_pv = tf.cond(training,
+            true_fn=lambda: population_var * decay + batch_var * (1 - decay),
+            false_fn=lambda: population_var)
+
+        train_mean_op = tf.assign(population_mean, cond_new_pm)
+        train_var_op = tf.assign(population_var, cond_new_pv)
+
+        with tf.control_dependencies([train_mean_op, train_var_op]):
+            x = tf.nn.batch_normalization(inputs, population_mean, population_var, None, None, epsilon)
+        return gamma * x + beta
 
 def instance_normalization(x):
     epsilon = 1e-9
@@ -44,28 +79,6 @@ def group_normalization(x, G=32, name='group', reuse=False):
         output = tf.transpose(output, [0, 2, 3, 1])
         return output
 
-def get_norm(name, x, method, training=None, reuse=False):
-    """
-    Get batch normalization of different kind.
-    """
-    if method is None:
-        return x
-    
-    if method.find("inst") > -1:
-        # usually fail to produce any realistic result in GAN
-        return instance_normalization(x)
-    elif method.find("default") > -1:
-        with tf.variable_scope(name, reuse=reuse):
-            return default_batch_norm(x, training)
-        #return tf.layers.batch_normalization(inputs=x, name=name + "_" + method, reuse=reuse, training=training, epsilon=1e-6)
-    elif method.find("contrib") > -1:
-        # Common choice
-        return tf.contrib.layers.batch_norm(inputs=x, scope=name + "_" + method, reuse=reuse, is_training=training, epsilon=1e-6)
-    elif method.find("group") > -1:
-        return group_normalization(x, name=name + "_" + method, reuse=reuse)
-    else:
-        return x
-
 def LeakyReLU(x, alpha=0.2):
     return tf.maximum(alpha * x, x)
 
@@ -81,53 +94,70 @@ def learned_sum(name, input, reuse=False):
         output = tf.reduce_sum(input * mulmap, axis=[1, 2])
     return output
 
-def conditional_batch_normalization(name, inputs, conditions, spectral_norm=0, update_collection=None, training=True, is_project=True, reuse=False, epsilon=1e-6, decay=0.99):
+def conditional_batch_normalization(name, inputs, conditions, phase='default', spectral_norm=0, update_collection=None, training=True, is_project=True, reuse=False, epsilon=1e-6, decay=0.99):
     """
-    conditions: [gamma, beta]
+    conditions: [gamma, beta].
+    spectral_norm & update_collection: for spectral weight normalization
     """
 
     with tf.variable_scope(name, reuse=reuse):
         size = inputs.get_shape().as_list()[-1]
         p_dim = size if is_project else 1
 
-        w = tf.get_variable("weight", shape=[conditions.get_shape()[-1], p_dim * 2], initializer=tf.orthogonal_initializer)
-        """
+        w_gamma = tf.get_variable("weight_gamma", shape=[conditions.get_shape()[-1], p_dim],
+            initializer=tf.orthogonal_initializer)
+        w_beta = tf.get_variable("weight_beta", shape=[conditions.get_shape()[-1], p_dim],
+            initializer=tf.orthogonal_initializer)
+
         if spectral_norm > 0:
             if spectral_norm == 1: # spectral norm weight from noise vector
                 u = None
             elif spectral_norm == 2: #spectral norm weight from data vector
                 u = inputs
-            w = ops.spectral_normed_weight(w, u=u, update_collection=update_collection)
-        """
+            with tf.variable_scope("gamma", reuse=reuse):
+                w_gamma = ops.spectral_normed_weight(w_gamma, u=u, update_collection=update_collection)
+            with tf.variable_scope("beta", reuse=reuse):
+                w_beta = ops.spectral_normed_weight(w_beta, u=u, update_collection=update_collection)
 
-        projections = tf.reshape(tf.matmul(conditions, w), [-1, 2, p_dim])
+        gamma = tf.matmul(conditions, w_gamma)
+        beta = tf.matmul(conditions, w_beta)
 
-        population_mean = tf.get_variable(
-            'moving_mean', [size],
-            initializer=tf.zeros_initializer(), trainable=False)
-        population_var = tf.get_variable(
-            'moving_var', [size],
-            initializer=tf.ones_initializer(), trainable=False)
+        with tf.variable_scope(phase, reuse=tf.AUTO_REUSE):
+            population_mean = tf.get_variable(
+                'moving_mean', [size],
+                initializer=tf.zeros_initializer(), trainable=False)
+            population_var = tf.get_variable(
+                'moving_var', [size],
+                initializer=tf.ones_initializer(), trainable=False)
 
         if len(inputs.get_shape()) == 4:
             batch_mean, batch_var = tf.nn.moments(inputs, [0, 1, 2])
-            gamma = tf.reshape(projections[:, 0], [-1, 1, 1, p_dim])
-            beta = tf.reshape(projections[:, 1], [-1, 1, 1, p_dim])
+            gamma = tf.reshape(gamma, [-1, 1, 1, p_dim])
+            beta = tf.reshape(beta, [-1, 1, 1, p_dim])
         elif len(inputs.get_shape()) == 2:
             batch_mean, batch_var = tf.nn.moments(inputs, [0])
-            gamma = tf.reshape(conditions[:, 0], [-1, p_dim])
-            beta = tf.reshape(conditions[:, 1], [-1, p_dim])
+            gamma = tf.reshape(gamma, [-1, p_dim])
+            beta = tf.reshape(beta, [-1, p_dim])
 
-        train_mean_op = tf.assign(
-            population_mean,
-            population_mean * decay + batch_mean * (1 - decay))
-        train_var_op = tf.assign(
-            population_var, population_var * decay + batch_var * (1 - decay))
+        cond_new_pm = tf.cond(training,
+            true_fn=lambda: population_mean * decay + batch_mean * (1 - decay),
+            false_fn=lambda: population_mean)
+        cond_new_pv = tf.cond(training,
+            true_fn=lambda: population_var * decay + batch_var * (1 - decay),
+            false_fn=lambda: population_var)
 
-        tf.add_to_collection(tf.GraphKeys.UPDATE_OPS, train_mean_op)
-        tf.add_to_collection(tf.GraphKeys.UPDATE_OPS, train_var_op)
+        train_mean_op = tf.assign(population_mean, cond_new_pm)
+        train_var_op = tf.assign(population_var, cond_new_pv)
 
-        x = tf.nn.batch_normalization(inputs, population_mean, population_var, None, None, epsilon)
+        #tf.add_to_collection(tf.GraphKeys.UPDATE_OPS, train_mean_op)
+        #tf.add_to_collection(tf.GraphKeys.UPDATE_OPS, train_var_op)
+        
+        # debug
+        #population_mean = ops.debug_tensor(population_mean, "%s:%s/%s" % (name, phase, "mean"))
+        #population_var = ops.debug_tensor(population_var, "%s:%s/%s" % (name, phase, "var"))
+
+        with tf.control_dependencies([train_mean_op, train_var_op]):
+            x = tf.nn.batch_normalization(inputs, population_mean, population_var, None, None, epsilon)
         return gamma * x + beta
 
 def conv2d(name, input, output_dim, filter_size=3, stride=1,
@@ -135,7 +165,7 @@ def conv2d(name, input, output_dim, filter_size=3, stride=1,
     """
     Args:
         spectral: If to use spectral normalization
-        update_collection: only used in spectral normalization
+        update_collection: only used in spectral normalization, usually set to None
     """
     with tf.variable_scope(name, reuse=reuse):
         w = tf.get_variable("kernel", shape=[filter_size, filter_size, input.get_shape()[-1], output_dim], initializer=tf.orthogonal_initializer)
@@ -208,9 +238,6 @@ def subpixel_conv(name, input, output_dim, filter_size=3, spectral=False, update
         spectral=spectral, update_collection=update_collection, reuse=reuse)
     return tf.depth_to_space(output, 2)
 
-def hw_flatten(x) :
-    return tf.reshape(x, shape=[x.shape[0], -1, x.shape[-1]])
-
 def simple_residual_block(name, input, filter_size=3,
     activation_fn=tf.nn.relu, norm_fn=None,
     spectral=False, update_collection=None, reuse=False):
@@ -282,11 +309,11 @@ def attention(name, x, ch, spectral_norm=True, update_collection=None, reuse=Fal
     h =  conv2d(name + "h_conv", x, ch, 1, 1, spectral_norm, update_collection) # [bs, h, w, c]
 
     # N = h * w
-    s = tf.matmul(hw_flatten(g), hw_flatten(f), transpose_b=True) # # [bs, N, N]
+    s = tf.matmul(ops.hw_flatten(g), ops.hw_flatten(f), transpose_b=True) # # [bs, N, N]
 
     beta = tf.nn.softmax(s)  # attention map
 
-    o = tf.matmul(beta, hw_flatten(h)) # [bs, N, C]
+    o = tf.matmul(beta, ops.hw_flatten(h)) # [bs, N, C]
     with tf.variable_scope(name, reuse=reuse):
         gamma = tf.get_variable("gamma", [1], initializer=tf.constant_initializer(0.0))
 
@@ -320,3 +347,26 @@ def attention_2(name, x, ch, spectral_norm=True, update_collection=None, reuse=F
 
     return x
 """
+
+def get_norm(name, x, method, training=None, reuse=False):
+    """
+    [Deprecated]
+    Get batch normalization of different kind.
+    """
+    if method is None:
+        return x
+    
+    if method.find("inst") > -1:
+        # usually fail to produce any realistic result in GAN
+        return instance_normalization(x)
+    elif method.find("default") > -1:
+        with tf.variable_scope(name, reuse=reuse):
+            return default_batch_norm(x, training)
+        #return tf.layers.batch_normalization(inputs=x, name=name + "_" + method, reuse=reuse, training=training, epsilon=1e-6)
+    elif method.find("contrib") > -1:
+        # Common choice
+        return tf.contrib.layers.batch_norm(inputs=x, scope=name + "_" + method, reuse=reuse, is_training=training, epsilon=1e-6)
+    elif method.find("group") > -1:
+        return group_normalization(x, name=name + "_" + method, reuse=reuse)
+    else:
+        return x

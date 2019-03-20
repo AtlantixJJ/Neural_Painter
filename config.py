@@ -65,6 +65,18 @@ def simple(size, n_attr):
         n_attr=n_attr)
     return gen_model, disc_model
 
+def simple_debug(size, n_attr):
+    gen_model = model.simple.SimpleConvolutionGenerator(
+        name="G",
+        debug=True,
+        out_size=size)
+    disc_model = model.simple.SimpleConvolutionDiscriminator(
+        name="D",
+        input_size=size,
+        debug=True,
+        n_attr=n_attr)
+    return gen_model, disc_model
+
 def simple_mask(size, n_attr):
     d_map_depth = 64
     if size == 64:

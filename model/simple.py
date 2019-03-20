@@ -33,14 +33,23 @@ class SimpleConvolutionGenerator(basic.SequentialNN):
         """
         return self.map_depth * (2 ** (self.n_layer - i))
 
-    def build_inference(self, input, update_collection="no_ops"):
-        # normal bn
-        #bn_partial = utils.partial(layers.get_norm, method=self.norm_mtd, training=self.training, reuse=self.reuse)
+    def get_generator_batchnorm(self, update_collection):
+        """
+        Define the bn function here, because bn is quite different.
+        This should return a partial function with (name, x) as argument and other argument filled
+        """
+        def func_(name, x):
+            return layers.conditional_batch_normalization(name, x, self.input, 'default',
+                spectral_norm=self.spectral_norm, update_collection=update_collection,
+                training=self.training, is_project=self.cbn_project, reuse=self.reuse)
+        return func_
+
+    def build_inference(self, input, update_collection=None):
+        self.input = input
         # conditional bn: must use with conditional GAN
-        bn_partial = utils.partial(layers.conditional_batch_normalization,
-            spectral_norm=self.spectral_norm, update_collection=update_collection,
-            conditions=input, training=self.training, is_project=self.cbn_project, reuse=self.reuse)
-        # partial function: fill in some argument in advance, and only (name, input) is needed at call time
+        cbn_partial = self.get_generator_batchnorm(update_collection)
+        bn_partial = utils.partial(layers.default_batch_norm, phase='default',
+            training=self.training, reuse=self.reuse)
 
         x = layers.linear("fc1", input, 
                 (self.map_size ** 2) * self.get_depth(0),
@@ -49,17 +58,20 @@ class SimpleConvolutionGenerator(basic.SequentialNN):
         x = bn_partial('fc1/bn', x)
         x = tf.nn.relu(x)
         print("=> fc1:\t" + str(x.get_shape()))
+        #if self.debug: x = ops.debug_tensor(x, 'gen fc1')
 
         for i in range(self.n_layer + 1):
             name = "deconv%d" % (i+1)
             x = layers.deconv2d(name, x, self.get_depth(i), 4, 2,
                 self.spectral_norm, update_collection, self.reuse)
-            x = bn_partial(name + "/bn", x)
+            x = cbn_partial(name + "/bn", x)
             x = tf.nn.relu(x)
             print("=> " + name + ":\t" + str(x.get_shape()))
+            #if self.debug: x = ops.debug_tensor(x, 'gen deconv%d' % (i+1))
 
         x = layers.conv2d("conv1", x, self.out_dim, self.ksize, 1, self.spectral_norm, update_collection, self.reuse)
         print("=> conv1:\t" + str(x.get_shape()))
+        #if self.debug: x = ops.debug_tensor(x, 'gen output')
         self.out = tf.nn.tanh(x)
 
         return self.out
@@ -169,19 +181,44 @@ class SimpleConvolutionDiscriminator(basic.SequentialNN):
         elif self.input_size <= 128: self.ksize = 7
         else: self.ksize = 9
 
+    def set_phase(self, phase):
+        """
+        When using batch norm in discrminator, the distribution of data in different phase is different
+        """
+        self.phase = phase
+
+    def set_label(self, label):
+        self.label = label
+
     def get_depth(self, i):
         """
         Given the layer index (start from 0 to self.n_layer), return the map depth
         """
         return self.map_depth * (2 ** i)
 
+    def get_discriminator_batchnorm(self, update_collection):
+        """
+        Define the bn function here, because bn is quite different.
+        This should return a partial function with (name, x) as argument and other argument filled
+        """
+        def func_(name, x):
+            return layers.conditional_batch_normalization(name, x, self.label, self.phase,
+                spectral_norm=self.spectral_norm, update_collection=update_collection,
+                training=self.training, is_project=self.cbn_project, reuse=self.reuse)
+        def id_(name, x): return x
+        def default_(name, x):
+            return layers.default_batch_norm(name, x, phase='default', training=self.training, reuse=self.reuse)
+        return default_
+        
     def build_inference(self, input, update_collection=None):
         # usually discriminator do not use bn
-        #bn_partial = utils.partial(layers.get_norm, training=self.training, reuse=self.reuse)
+        bn_partial = self.get_discriminator_batchnorm(update_collection)
 
         x = layers.conv2d("main/conv1", input, self.get_depth(0), self.ksize, 1,
                     self.spectral_norm, update_collection, self.reuse)
+        x = bn_partial("main/bn1", x)
         x = layers.LeakyReLU(x)
+        #if self.debug: x = ops.debug_tensor(x, 'disc conv1')
         print("=> main/conv1:\t" + str(x.get_shape()))
 
         self.mid_layers = self.n_layer // 2 + 1
@@ -191,8 +228,10 @@ class SimpleConvolutionDiscriminator(basic.SequentialNN):
             x = layers.conv2d(name, x,
                 self.get_depth(i), 4, 2,
                 self.spectral_norm, update_collection, self.reuse)
+            x = bn_partial("main/bn%d" % (i+2), x)
             x = layers.LeakyReLU(x)
             print("=> " + name + ":\t" + str(x.get_shape()))
+            #if self.debug: x = ops.debug_tensor(x, 'disc conv%d' % (i+2))
 
         class_branch = tf.identity(x)
 
@@ -201,29 +240,39 @@ class SimpleConvolutionDiscriminator(basic.SequentialNN):
             x = layers.conv2d(name, x,
                 self.get_depth(i), 4, 2,
                 self.spectral_norm, update_collection, self.reuse)
+            x = bn_partial("disc/bn%d" % (i+2), x)
             x = layers.LeakyReLU(x)
             print("=> " + name + ":\t" + str(x.get_shape()))
-
+            #if self.debug: x = ops.debug_tensor(x, 'disc conv%d' % (i+2))
+        
+        """
         for i in range(self.mid_layers, self.n_layer + 1):
             name = "class/conv%d" % (i+2)
             class_branch = layers.conv2d(name, class_branch,
                 self.get_depth(i), 4, 2,
                 self.spectral_norm, update_collection, self.reuse)
+            x = bn_partial("class/bn%d" % (i+2), x)
             class_branch = layers.LeakyReLU(class_branch)
             print("=> " + name + ":\t" + str(class_branch.get_shape()))
 
         class_branch = tf.reduce_mean(class_branch, axis=[1, 2])
         print("=> class:\t" + str(class_branch.get_shape()))
-        x = tf.reduce_mean(x, axis=[1, 2])
-        print("=> disc:\t" + str(x.get_shape()))
-
-        self.disc_out = layers.linear("disc/fc", x, 1,
-                        self.spectral_norm, update_collection, self.reuse)
 
         self.cls_out = layers.linear("class/fc", class_branch, self.n_attr, 
                     self.spectral_norm, update_collection, self.reuse)
 
         print("=> class:\t" + str(self.cls_out.get_shape()))
+        """
+
+        x = tf.reduce_mean(x, axis=[1, 2])
+        print("=> disc:\t" + str(x.get_shape()))
+        
+        #if self.debug: x = ops.debug_tensor(x, 'disc fc')
+        
+        # do not use spectral norm in output
+        self.disc_out = layers.linear("disc/fc", x, 1,
+                        0, update_collection, self.reuse)
+
         print("=> disc:\t" + str(self.disc_out.get_shape()))
 
-        return self.disc_out, self.cls_out
+        return self.disc_out#, self.cls_out

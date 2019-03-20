@@ -291,10 +291,9 @@ class DeepDiscriminator(SimpleConvolutionDiscriminator):
 
         class_branch = layers.learned_sum("class/learned_sum", class_branch, self.reuse)
 
+        # do not use spectral norm in output
         self.disc_out = layers.linear("fc_disc", x, 1,
-                        self.spectral_norm, update_collection, self.reuse)
+                        0, update_collection, self.reuse)
 
-        self.cls_out = layers.linear("fc_cls", class_branch, self.n_attr, 
-                    self.spectral_norm, update_collection, self.reuse)
         
         return self.disc_out, self.cls_out

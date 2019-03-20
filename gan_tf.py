@@ -112,13 +112,17 @@ def main():
     gen_model.set_reuse()
     gen_model.x_fake = x_fake
 
-    disc_real, real_cls_logits = disc_model(x_real, update_collection=None)
+    disc_model.set_label(c_label)
+    disc_model.set_phase("real")
+    disc_real = disc_model(x_real, update_collection=None)
     disc_model.set_reuse()
-    disc_fake, fake_cls_logits = disc_model(x_fake, update_collection=None)
-    disc_model.disc_real        = disc_real       
+    disc_model.set_label(c_noise)
+    disc_model.set_phase("fake")
+    disc_fake = disc_model(x_fake, update_collection=None)
+    disc_model.disc_real        = disc_real
     disc_model.disc_fake        = disc_fake       
-    disc_model.real_cls_logits = real_cls_logits
-    disc_model.fake_cls_logits = fake_cls_logits
+    #disc_model.real_cls_logits = real_cls_logits
+    #disc_model.fake_cls_logits = fake_cls_logits
 
     int_sum_op = []
     
@@ -142,11 +146,11 @@ def main():
     grid_x_real = ops.get_grid_image_summary(x_real, 4)
     int_sum_op.append(tf.summary.image("real image", grid_x_real))
 
-    if FLAGS.cgan:
-        loss.classifier_loss(gen_model, disc_model, x_real, c_label, c_noise,
-        weight=1.0)
+    #if FLAGS.cgan:
+    #    loss.classifier_loss(gen_model, disc_model, x_real, c_label, c_noise,
+    #    weight=1.0)
 
-    loss.hinge_loss(gen_model, disc_model, adv_weight=dataset.class_num)
+    loss.hinge_loss(gen_model, disc_model, adv_weight=1.0)#dataset.class_num)
     
     int_sum_op = tf.summary.merge(int_sum_op)
 

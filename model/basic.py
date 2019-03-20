@@ -17,10 +17,10 @@ class SequentialNN(object):
     build_inference
     """
 
-    def __init__(self, name, norm_mtd='default'):
+    def __init__(self, name, debug=False):
         self.name = name 
         self.reuse = False
-        self.norm_mtd = norm_mtd
+        self.debug = debug
 
         self.training = tf.placeholder(tf.bool, shape=[], name=name + "_training")
         self.keep_prob = tf.placeholder(tf.float32, shape=[], name=name + "keep_prob")
@@ -58,7 +58,10 @@ class SequentialNN(object):
             x = input
             if type(input) is list:
                 if len(input) > 1:
-                    x = tf.concat(input, len(input[0].get_shape())-1, "concat_input_gen")
+                    try:
+                        x = tf.concat(input, len(input[0].get_shape())-1, "concat_input_gen")
+                    except:
+                        print("!> Input of " + self.name + " cannot be concatenated")
                 else:
                     x = input[0]
             return self.build_inference(x, update_collection) 
@@ -73,13 +76,20 @@ class SequentialNN(object):
         #with tf.name_scope(self.name):
         #    self.sum_op.append(tf.summary.scalar("regularize", reg_losses))
         #self.cost += tf.identity(reg_losses, self.name + "_regularize")
-        
+
+        for model_var in tf.global_variables():
+            if self.name in model_var.op.name:
+                self.sum_op.append(tf.summary.histogram(model_var.op.name, model_var))
+
         if len(self.sum_op) > 0:
             self.sum_op = tf.summary.merge(self.sum_op)
 
         self.update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS, scope=self.name)
 
         with tf.control_dependencies(self.update_ops):
+            print("Update dependency of %s:" % self.name)
+            for o in self.update_ops:
+                print(o)
             """
             self.train_op = adabound.AdaBoundOptimizer(
                 learning_rate=4e-4,

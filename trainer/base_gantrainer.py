@@ -92,7 +92,7 @@ class BaseGANTrainer(BaseTrainer):
         self.fixed_noise = ops.get_random("normal", self.z_shape)
         
         if self.FLAGS.cgan:
-            if self.c_shape[1] == 34: self.fixed_cond = ops.get_random("getchu_continuous", self.c_shape)
+            if self.c_shape[1] == 34: self.fixed_cond = ops.get_random("getchu_boolean", self.c_shape)
             else: self.fixed_cond = ops.get_random("boolean", self.c_shape)
 
             self.fixed_feed.update({
@@ -150,7 +150,7 @@ class BaseGANTrainer(BaseTrainer):
         self.feed.update({self.z_noise : z})
 
         if self.FLAGS.cgan:
-            if self.c_shape[1] == 34: c = ops.get_random("getchu_continuous", self.c_shape)
+            if self.c_shape[1] == 34: c = ops.get_random("getchu_boolean", self.c_shape)
             else: c = ops.get_random("boolean", self.c_shape)
             self.feed.update({self.c_noise : c})
 
