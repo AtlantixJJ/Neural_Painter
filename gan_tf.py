@@ -36,11 +36,12 @@ tf.app.flags.DEFINE_string("train_dir", "logs/simple_getchu", "log dir")
 # ----- model type flags ------ #
 
 tf.app.flags.DEFINE_boolean("cgan", True, "If to use ACGAN")
-tf.app.flags.DEFINE_integer("img_size", 128, "The size of input image, 64 | 128")
+tf.app.flags.DEFINE_integer("img_size", 64, "The size of input image, 64 | 128")
 tf.app.flags.DEFINE_string("model_name", "hg", "model type: simple | simple_mask | hg | hg_mask")
 tf.app.flags.DEFINE_string("data_dir", "/home/atlantix/data/celeba/img_align_celeba.zip", "data path")
 tf.app.flags.DEFINE_boolean("cbn_project", True, "If to project to depth dim")
 tf.app.flags.DEFINE_integer("sn", 1, "0 for no spectral norm| 1 for noise spectral norm | 2 for data spectral norm")
+tf.app.flags.DEFINE_integer("bn", 1, "0 for cbn| 1 for default bn | 2 for no bn")
 
 # ------ train control flags ----- #
 
@@ -48,10 +49,10 @@ tf.app.flags.DEFINE_boolean("use_cache", False, "If to use cache to prevent cact
 tf.app.flags.DEFINE_integer("gpu", 4, "which gpu to use")
 tf.app.flags.DEFINE_float("g_lr", 1e-4, "learning rate")
 tf.app.flags.DEFINE_float("d_lr", 4e-4, "learning rate")
-tf.app.flags.DEFINE_integer("batch_size", 128, "training batch size")
+tf.app.flags.DEFINE_integer("batch_size", 64, "training batch size")
 tf.app.flags.DEFINE_integer("num_iter", 200000, "training iteration")
 tf.app.flags.DEFINE_integer("dec_iter", 100000, "training iteration")
-tf.app.flags.DEFINE_integer("disc_iter", 2, "discriminator training iter")
+tf.app.flags.DEFINE_integer("disc_iter", 1, "discriminator training iter")
 tf.app.flags.DEFINE_integer("gen_iter", 1, "generative training iter")
 
 FLAGS = tf.app.flags.FLAGS
@@ -107,22 +108,49 @@ def main():
     gen_model.spectral_norm = FLAGS.sn
     disc_model.cbn_project = FLAGS.cbn_project
     disc_model.spectral_norm = FLAGS.sn
-    
+    disc_model.norm_mtd = FLAGS.bn
+
     x_fake = gen_model(gen_input, update_collection=None)
     gen_model.set_reuse()
     gen_model.x_fake = x_fake
+    
+    disc_model.set_label(c_noise)
+    disc_model.set_phase("default")
+    disc_fake = disc_model(x_fake, update_collection=None)
+    disc_model.set_reuse()
+
+    """ for debug
+    tensors = gen_model.recorded_tensors + disc_model.recorded_tensors
+    names = gen_model.recorded_names + disc_model.recorded_names
+    grads = tf.gradients(disc_fake, tensors)
+
+    grad_sums = []
+    for n,g,t in zip(names, grads, tensors):
+        print(n, g)
+        if g is not None:
+            grad_sums.append(tf.summary.histogram("grad/" + n, g))
+    gen_model.sum_op.extend(grad_sums)
+
+    disc_model.recorded_tensors = []
+    disc_model.recorded_names = []
+    """
 
     disc_model.set_label(c_label)
-    disc_model.set_phase("real")
+    disc_model.set_phase("default")
     disc_real = disc_model(x_real, update_collection=None)
-    disc_model.set_reuse()
-    disc_model.set_label(c_noise)
-    disc_model.set_phase("fake")
-    disc_fake = disc_model(x_fake, update_collection=None)
     disc_model.disc_real        = disc_real
-    disc_model.disc_fake        = disc_fake       
-    #disc_model.real_cls_logits = real_cls_logits
-    #disc_model.fake_cls_logits = fake_cls_logits
+    disc_model.disc_fake        = disc_fake 
+
+    """ for debug
+    grads = tf.gradients(disc_real, disc_model.recorded_tensors)
+
+    grad_sums = []
+    for n,g,t in zip(disc_model.recorded_names, grads, disc_model.recorded_tensors):
+        print(n, g)
+        if g is not None:
+            grad_sums.append(tf.summary.histogram("grad/" + n, g))
+    disc_model.sum_op.extend(grad_sums)
+    """
 
     int_sum_op = []
     
@@ -146,15 +174,13 @@ def main():
     grid_x_real = ops.get_grid_image_summary(x_real, 4)
     int_sum_op.append(tf.summary.image("real image", grid_x_real))
 
-    #if FLAGS.cgan:
-    #    loss.classifier_loss(gen_model, disc_model, x_real, c_label, c_noise,
-    #    weight=1.0)
-
-    loss.hinge_loss(gen_model, disc_model, adv_weight=1.0)#dataset.class_num)
-    
     int_sum_op = tf.summary.merge(int_sum_op)
 
-    ModelTrainer = trainer.base_gantrainer.BaseGANTrainer(
+    raw_gen_cost, raw_disc_real, raw_disc_fake = loss.hinge_loss(gen_model, disc_model, adv_weight=1.0)#dataset.class_num)
+    disc_model.disc_real_loss = raw_disc_real
+    disc_model.disc_fake_loss = raw_disc_fake
+
+    ModelTrainer = trainer.base_gantrainer.BaseGANTrainer(#trainer.separated_gantrainer.SeparatedGANTrainer(#
         int_sum_op=int_sum_op,
         dataloader=dl,
         FLAGS=FLAGS,

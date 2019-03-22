@@ -46,19 +46,23 @@ class SimpleConvolutionGenerator(basic.SequentialNN):
 
     def build_inference(self, input, update_collection=None):
         self.input = input
+
         # conditional bn: must use with conditional GAN
         cbn_partial = self.get_generator_batchnorm(update_collection)
         bn_partial = utils.partial(layers.default_batch_norm, phase='default',
             training=self.training, reuse=self.reuse)
 
-        x = layers.linear("fc1", input, 
+        x = input
+        x = self.check(x, "G/input")
+
+        x = layers.linear("fc1", x, 
                 (self.map_size ** 2) * self.get_depth(0),
                 self.spectral_norm, update_collection, self.reuse)
         x = tf.reshape(x, [-1, self.map_size, self.map_size, self.get_depth(0)])
         x = bn_partial('fc1/bn', x)
         x = tf.nn.relu(x)
         print("=> fc1:\t" + str(x.get_shape()))
-        #if self.debug: x = ops.debug_tensor(x, 'gen fc1')
+        x = self.check(x, "G/fc1")
 
         for i in range(self.n_layer + 1):
             name = "deconv%d" % (i+1)
@@ -67,11 +71,11 @@ class SimpleConvolutionGenerator(basic.SequentialNN):
             x = cbn_partial(name + "/bn", x)
             x = tf.nn.relu(x)
             print("=> " + name + ":\t" + str(x.get_shape()))
-            #if self.debug: x = ops.debug_tensor(x, 'gen deconv%d' % (i+1))
+            x = self.check(x, "G/" + name)
 
         x = layers.conv2d("conv1", x, self.out_dim, self.ksize, 1, self.spectral_norm, update_collection, self.reuse)
         print("=> conv1:\t" + str(x.get_shape()))
-        #if self.debug: x = ops.debug_tensor(x, 'gen output')
+        x = self.check(x, "G/output")
         self.out = tf.nn.tanh(x)
 
         return self.out
@@ -205,21 +209,27 @@ class SimpleConvolutionDiscriminator(basic.SequentialNN):
             return layers.conditional_batch_normalization(name, x, self.label, self.phase,
                 spectral_norm=self.spectral_norm, update_collection=update_collection,
                 training=self.training, is_project=self.cbn_project, reuse=self.reuse)
-        def id_(name, x): return x
         def default_(name, x):
-            return layers.default_batch_norm(name, x, phase='default', training=self.training, reuse=self.reuse)
-        return default_
+            return layers.default_batch_norm(name, x, phase=self.phase, training=self.training, reuse=self.reuse)
+        def id_(name, x): return x
+
+        if self.norm_mtd == 0: return func_
+        elif self.norm_mtd == 1: return default_
+        else: return id_
         
     def build_inference(self, input, update_collection=None):
         # usually discriminator do not use bn
         bn_partial = self.get_discriminator_batchnorm(update_collection)
 
-        x = layers.conv2d("main/conv1", input, self.get_depth(0), self.ksize, 1,
+        x = tf.identity(input)
+        x = self.check(x, "D/input/" + self.phase)
+  
+        x = layers.conv2d("main/conv1", x, self.get_depth(0), self.ksize, 1,
                     self.spectral_norm, update_collection, self.reuse)
         x = bn_partial("main/bn1", x)
         x = layers.LeakyReLU(x)
-        #if self.debug: x = ops.debug_tensor(x, 'disc conv1')
         print("=> main/conv1:\t" + str(x.get_shape()))
+        x = self.check(x, "D/conv1/" + self.phase)
 
         self.mid_layers = self.n_layer // 2 + 1
 
@@ -231,9 +241,9 @@ class SimpleConvolutionDiscriminator(basic.SequentialNN):
             x = bn_partial("main/bn%d" % (i+2), x)
             x = layers.LeakyReLU(x)
             print("=> " + name + ":\t" + str(x.get_shape()))
-            #if self.debug: x = ops.debug_tensor(x, 'disc conv%d' % (i+2))
+            x = self.check(x, "D/" + name + "/"  + self.phase)
 
-        class_branch = tf.identity(x)
+        #class_branch = tf.identity(x)
 
         for i in range(self.mid_layers, self.n_layer + 1):
             name = "disc/conv%d" % (i+2)
@@ -243,7 +253,7 @@ class SimpleConvolutionDiscriminator(basic.SequentialNN):
             x = bn_partial("disc/bn%d" % (i+2), x)
             x = layers.LeakyReLU(x)
             print("=> " + name + ":\t" + str(x.get_shape()))
-            #if self.debug: x = ops.debug_tensor(x, 'disc conv%d' % (i+2))
+            x = self.check(x, "D/" + name + "/" + self.phase)
         
         """
         for i in range(self.mid_layers, self.n_layer + 1):
@@ -266,13 +276,17 @@ class SimpleConvolutionDiscriminator(basic.SequentialNN):
 
         x = tf.reduce_mean(x, axis=[1, 2])
         print("=> disc:\t" + str(x.get_shape()))
-        
-        #if self.debug: x = ops.debug_tensor(x, 'disc fc')
+
+        x = self.check(x, "D/gap/" + self.phase)
         
         # do not use spectral norm in output
-        self.disc_out = layers.linear("disc/fc", x, 1,
+        x = layers.linear("disc/fc", x, 1,
                         0, update_collection, self.reuse)
 
-        print("=> disc:\t" + str(self.disc_out.get_shape()))
+        print("=> disc:\t" + str(x.get_shape()))
+        
+        x = self.check(x, "D/fc/" + self.phase)
+
+        self.disc_out = x
 
         return self.disc_out#, self.cls_out

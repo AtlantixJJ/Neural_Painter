@@ -451,7 +451,10 @@ class CelebADataset(FileDataset):
             x = tf.read_file(filename)
             x = tf.image.decode_image(x)
         
-        x = tf.image.crop_to_bounding_box(x, 50, 25, self.img_size[0], self.img_size[1])
+        x = tf.image.crop_to_bounding_box(x, 50, 25, 128, 128)
+        x = tf.expand_dims(x, 0)
+        x = tf.image.resize_bilinear(x, (self.img_size[0], self.img_size[1]))
+        x = x[0]
         x = tf.cast(x, tf.float32) / 255.0
         x = tf.image.random_brightness(x, 0.05)
         x = tf.image.random_contrast(x, 0.9, 1.1)

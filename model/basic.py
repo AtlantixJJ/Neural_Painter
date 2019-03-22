@@ -3,7 +3,7 @@ sys.path.insert(0, '..')
 sys.path.insert(0, '.')
 import tensorflow as tf
 from tensorflow import layers
-from lib import files, adabound
+from lib import files, adabound, ops
 
 class SequentialNN(object):
     """
@@ -27,6 +27,16 @@ class SequentialNN(object):
         
         self.cost = self.extra_loss = 0
         self.sum_op = self.extra_sum_op = []
+
+        self.recorded_tensors = []
+        self.recorded_names = []
+
+    def check(self, x, name=""):
+        if self.debug:
+            self.recorded_tensors.append(x)
+            self.recorded_names.append(name)
+            #return ops.debug_tensor(x, name)
+        return x
 
     def get_trainable_variables(self, update=False):
         self.vars = [v for v in tf.trainable_variables() if self.name in v.name]
@@ -77,9 +87,10 @@ class SequentialNN(object):
         #    self.sum_op.append(tf.summary.scalar("regularize", reg_losses))
         #self.cost += tf.identity(reg_losses, self.name + "_regularize")
 
-        for model_var in tf.global_variables():
-            if self.name in model_var.op.name:
-                self.sum_op.append(tf.summary.histogram(model_var.op.name, model_var))
+        if self.debug:
+            for model_var in tf.global_variables():
+                if self.name in model_var.op.name:
+                    self.sum_op.append(tf.summary.histogram(model_var.op.name, model_var))
 
         if len(self.sum_op) > 0:
             self.sum_op = tf.summary.merge(self.sum_op)

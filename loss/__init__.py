@@ -114,15 +114,15 @@ def dragan_loss(gen_model, disc_model, x_real, adv_weight=1.0, gp_weight=1.0):
 
 def hinge_loss(gen_model, disc_model, adv_weight=1.0):
     print("=> Build Hinge loss")
-    raw_gen_cost = - tf.reduce_mean(disc_model.disc_fake)
-    raw_disc_cost = tf.reduce_mean(tf.nn.relu(1 - disc_model.disc_real))
-    raw_disc_cost += tf.reduce_mean(tf.nn.relu(1 + disc_model.disc_fake))
+    raw_gen_cost = -tf.reduce_mean(disc_model.disc_fake)
+    raw_disc_real = tf.reduce_mean(tf.nn.relu(1 - disc_model.disc_real))
+    raw_disc_fake = tf.reduce_mean(tf.nn.relu(1 + disc_model.disc_fake))
     
     gen_model.cost += raw_gen_cost * adv_weight
-    disc_model.cost += raw_disc_cost * adv_weight
-    with tf.device("/device:CPU:0"):
-        gen_model.sum_op.append(tf.summary.scalar("GenRaw", raw_gen_cost))
-        disc_model.sum_op.append(tf.summary.scalar("DiscRaw", raw_disc_cost))
+    disc_model.cost += (raw_disc_real + raw_disc_fake) * adv_weight
+    gen_model.sum_op.append(tf.summary.scalar("GenRaw", raw_gen_cost))
+    disc_model.sum_op.append(tf.summary.scalar("DiscRaw", raw_disc_real + raw_disc_fake))
+    return raw_gen_cost, raw_disc_real, raw_disc_fake
 
 def diverse_distribution(ps):
     """
