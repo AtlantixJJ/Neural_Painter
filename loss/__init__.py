@@ -4,7 +4,7 @@ GAN loss module
 
 import tensorflow as tf
 
-from lib import ops
+from lib import ops, utils
 import numpy as np
 from loss.common_loss import gradient_penalty
 
@@ -164,4 +164,26 @@ def cosine_diverse_distribution(ps):
     loss = tf.reduce_mean(tf.square(eye - ss))
     loss_sum = tf.summary.scalar("cosine diverse loss", loss)
 
+    return loss, loss_sum
+
+def batchnorm_contrast_loss(phase1="fake", phase2="real", weight=0.1):
+    print("=> Build Batch Normalization Contrastive Loss")
+    batch_means = tf.get_collection("batch_mean")
+    batch_vars = tf.get_collection("batch_var")
+    tensorlist = batch_means + batch_vars
+    loss = 0
+    loss_sum = []
+    count = 0
+    for v in tensorlist:
+        if phase1 in v.name:
+            t = utils.find_tensor_by_name(v.name.replace(phase1, phase2), tensorlist)
+
+            print("%s - %s" % (v.name, t.name))
+            loss_layer = tf.reduce_mean((v - t) ** 2)
+            loss += loss_layer
+            loss_sum.append(tf.summary.scalar("bnc/" + v.name, loss_layer))
+            count += 1
+    loss = weight * loss / count
+    loss_sum.append(tf.summary.scalar("batchnorm constrast loss", loss))
+    
     return loss, loss_sum

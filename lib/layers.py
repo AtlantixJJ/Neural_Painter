@@ -5,7 +5,7 @@ import tensorflow as tf
 from tensorflow.contrib import layers as L
 from lib import ops
 
-def default_batch_norm(name, inputs, phase='default', training=True, reuse=False, epsilon=1e-6, decay=0.999):
+def default_batch_norm(name, inputs, phase='default', training=True, reuse=False, epsilon=1e-6, decay=0.9):
     """
     conditions: [gamma, beta].
     """
@@ -33,6 +33,9 @@ def default_batch_norm(name, inputs, phase='default', training=True, reuse=False
             gamma = tf.reshape(gamma, [-1, size])
             beta = tf.reshape(gamma, [-1, size])
         
+        tf.add_to_collection("batch_mean", tf.identity(batch_mean, phase + "/mean"))
+        tf.add_to_collection("batch_var", tf.identity(batch_var, phase + "/var"))
+        
         cond_new_pm = tf.cond(training,
             true_fn=lambda: population_mean * decay + batch_mean * (1 - decay),
             false_fn=lambda: population_mean)
@@ -53,15 +56,83 @@ def default_batch_norm(name, inputs, phase='default', training=True, reuse=False
         train_var_op = tf.assign(population_var, cond_new_pv)
 
         with tf.control_dependencies([train_mean_op, train_var_op]):
+            x = tf.nn.batch_normalization(inputs, population_mean, population_var, beta, gamma, epsilon)
+    return x
+
+def simple_batch_norm(name, inputs, phase='default', training=True, reuse=False, epsilon=1e-6, decay=0.9):
+    """
+    moving average, without any trainable variables
+    """
+
+    with tf.variable_scope(name, reuse=reuse):
+        size = inputs.get_shape().as_list()[-1]
+
+        with tf.variable_scope(phase, reuse=tf.AUTO_REUSE):
+            population_mean = tf.get_variable(
+                'moving_mean', [size],
+                initializer=tf.zeros_initializer(), trainable=False)
+            population_var = tf.get_variable(
+                'moving_var', [size],
+                initializer=tf.ones_initializer(), trainable=False)
+
+        if len(inputs.get_shape()) == 4:
+            batch_mean, batch_var = tf.nn.moments(inputs, [0, 1, 2])
+        elif len(inputs.get_shape()) == 2:
+            batch_mean, batch_var = tf.nn.moments(inputs, [0])
+        
+        cond_new_pm = tf.cond(training,
+            true_fn=lambda: population_mean * decay + batch_mean * (1 - decay),
+            false_fn=lambda: population_mean)
+        cond_new_pv = tf.cond(training,
+            true_fn=lambda: population_var * decay + batch_var * (1 - decay),
+            false_fn=lambda: population_var)
+
+        train_mean_op = tf.assign(population_mean, cond_new_pm)
+        train_var_op = tf.assign(population_var, cond_new_pv)
+
+        with tf.control_dependencies([train_mean_op, train_var_op]):
             x = tf.nn.batch_normalization(inputs, population_mean, population_var, None, None, epsilon)
-        return gamma * x + beta
+        return x
 
-def instance_normalization(x):
-    epsilon = 1e-9
+def caffe_batch_norm(name, inputs, phase='default', training=True, reuse=False, epsilon=1e-6, decay=0.9):
+    """
+    moving average, without any trainable variables.
+    And do not calculate gradient w.r.t mu and sigma.
+    """
 
-    mean, var = tf.nn.moments(x, [1, 2], keep_dims=True)
+    with tf.variable_scope(name, reuse=reuse):
+        size = inputs.get_shape().as_list()[-1]
 
-    return tf.div(tf.subtract(x, mean), tf.sqrt(tf.add(var, epsilon)))
+        with tf.variable_scope(phase, reuse=tf.AUTO_REUSE):
+            population_mean = tf.get_variable(
+                'moving_mean', [size],
+                initializer=tf.zeros_initializer(), trainable=False)
+            population_var = tf.get_variable(
+                'moving_var', [size],
+                initializer=tf.ones_initializer(), trainable=False)
+
+        if len(inputs.get_shape()) == 4:
+            batch_mean, batch_var = tf.nn.moments(inputs, [0, 1, 2])
+        elif len(inputs.get_shape()) == 2:
+            batch_mean, batch_var = tf.nn.moments(inputs, [0])
+        
+        # do not calculate gradient on mean and var
+        batch_mean = tf.stop_gradient(batch_mean)
+        batch_var = tf.stop_gradient(batch_var)
+        
+        cond_new_pm = tf.cond(training,
+            true_fn=lambda: population_mean * decay + batch_mean * (1 - decay),
+            false_fn=lambda: population_mean)
+        cond_new_pv = tf.cond(training,
+            true_fn=lambda: population_var * decay + batch_var * (1 - decay),
+            false_fn=lambda: population_var)
+
+        train_mean_op = tf.assign(population_mean, cond_new_pm)
+        train_var_op = tf.assign(population_var, cond_new_pv)
+
+        with tf.control_dependencies([train_mean_op, train_var_op]):
+            x = tf.nn.batch_normalization(inputs, population_mean, population_var, None, None, epsilon)
+        return x
 
 def group_normalization(x, G=32, name='group', reuse=False):
     esp = 1e-5

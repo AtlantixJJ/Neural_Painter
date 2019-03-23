@@ -31,7 +31,7 @@ tf.app.flags.DEFINE_boolean("reload", False, "If to reload from npz param. Incom
 tf.app.flags.DEFINE_boolean("resume", False, "If to resume from previous training. Incompatible with --resume.")
 tf.app.flags.DEFINE_integer("save_iter", 20000, "saving iteration interval")
 tf.app.flags.DEFINE_integer("num_worker", 1, "threads")
-tf.app.flags.DEFINE_string("train_dir", "logs/simple_getchu", "log dir")
+tf.app.flags.DEFINE_string("train_dir", "", "log dir")
 
 # ----- model type flags ------ #
 
@@ -40,8 +40,8 @@ tf.app.flags.DEFINE_integer("img_size", 64, "The size of input image, 64 | 128")
 tf.app.flags.DEFINE_string("model_name", "hg", "model type: simple | simple_mask | hg | hg_mask")
 tf.app.flags.DEFINE_string("data_dir", "/home/atlantix/data/celeba/img_align_celeba.zip", "data path")
 tf.app.flags.DEFINE_boolean("cbn_project", True, "If to project to depth dim")
-tf.app.flags.DEFINE_integer("sn", 1, "0 for no spectral norm| 1 for noise spectral norm | 2 for data spectral norm")
-tf.app.flags.DEFINE_integer("bn", 1, "0 for cbn| 1 for default bn | 2 for no bn")
+tf.app.flags.DEFINE_integer("bn", 1, "")
+tf.app.flags.DEFINE_integer("phases", 1, "1 | 2")
 
 # ------ train control flags ----- #
 
@@ -64,6 +64,10 @@ os.environ["CUDA_VISIBLE_DEVICES"] = str(FLAGS.gpu)
 
 def main():
     size = FLAGS.img_size
+
+    if len(FLAGS.train_dir) < 1:
+        bn_name = ["nobn", "caffebn", "simplebn", "defaultbn", "cbn"]
+        FLAGS.train_dir = os.path.join("logs", FLAGS.model_name + "_" + bn_name[FLAGS.bn] + "_" + str(FLAGS.phases))
 
     if FLAGS.cgan:
         # the label file is npy format
@@ -104,10 +108,6 @@ def main():
 
     # look up the config function from lib.config module
     gen_model, disc_model = getattr(config, FLAGS.model_name)(FLAGS.img_size, dataset.class_num)
-    gen_model.cbn_project = FLAGS.cbn_project
-    gen_model.spectral_norm = FLAGS.sn
-    disc_model.cbn_project = FLAGS.cbn_project
-    disc_model.spectral_norm = FLAGS.sn
     disc_model.norm_mtd = FLAGS.bn
 
     x_fake = gen_model(gen_input, update_collection=None)
@@ -115,8 +115,11 @@ def main():
     gen_model.x_fake = x_fake
     
     disc_model.set_label(c_noise)
-    disc_model.set_phase("default")
-    disc_fake = disc_model(x_fake, update_collection=None)
+    if FLAGS.phases > 1:
+        disc_model.set_phase("fake")
+    else:
+        disc_model.set_phase("default")
+    disc_fake, fake_cls_logits = disc_model(x_fake, update_collection=None)
     disc_model.set_reuse()
 
     """ for debug
@@ -136,10 +139,15 @@ def main():
     """
 
     disc_model.set_label(c_label)
-    disc_model.set_phase("default")
-    disc_real = disc_model(x_real, update_collection=None)
+    if FLAGS.phases > 1:
+        disc_model.set_phase("real")
+    else:
+        disc_model.set_phase("default")
+    disc_real, real_cls_logits = disc_model(x_real, update_collection=None)
     disc_model.disc_real        = disc_real
     disc_model.disc_fake        = disc_fake 
+    disc_model.real_cls_logits = real_cls_logits
+    disc_model.fake_cls_logits = fake_cls_logits
 
     """ for debug
     grads = tf.gradients(disc_real, disc_model.recorded_tensors)
@@ -179,6 +187,14 @@ def main():
     raw_gen_cost, raw_disc_real, raw_disc_fake = loss.hinge_loss(gen_model, disc_model, adv_weight=1.0)#dataset.class_num)
     disc_model.disc_real_loss = raw_disc_real
     disc_model.disc_fake_loss = raw_disc_fake
+
+    #bncloss, sum_ = loss.batchnorm_contrast_loss("fake", "real")
+    #gen_model.cost += bncloss
+    #gen_model.sum_op.extend(sum_)
+
+    if FLAGS.cgan:
+        loss.classifier_loss(gen_model, disc_model, x_real, c_label, c_noise,
+        weight=1.0 / dataset.class_num)
 
     ModelTrainer = trainer.base_gantrainer.BaseGANTrainer(#trainer.separated_gantrainer.SeparatedGANTrainer(#
         int_sum_op=int_sum_op,

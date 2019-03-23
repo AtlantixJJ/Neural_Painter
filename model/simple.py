@@ -205,18 +205,25 @@ class SimpleConvolutionDiscriminator(basic.SequentialNN):
         Define the bn function here, because bn is quite different.
         This should return a partial function with (name, x) as argument and other argument filled
         """
-        def func_(name, x):
-            return layers.conditional_batch_normalization(name, x, self.label, self.phase,
-                spectral_norm=self.spectral_norm, update_collection=update_collection,
-                training=self.training, is_project=self.cbn_project, reuse=self.reuse)
-        def default_(name, x):
-            return layers.default_batch_norm(name, x, phase=self.phase, training=self.training, reuse=self.reuse)
+
         def id_(name, x): return x
 
-        if self.norm_mtd == 0: return func_
-        elif self.norm_mtd == 1: return default_
-        else: return id_
-        
+        def caffe_batch_norm_(name, x):
+            return layers.caffe_batch_norm(name, x, phase=self.phase, training=self.training, reuse=self.reuse)
+
+        def simple_batch_norm_(name, x):
+            return layers.simple_batch_norm(name, x, phase=self.phase, training=self.training, reuse=self.reuse)
+
+        def default_(name, x):
+            return layers.default_batch_norm(name, x, phase=self.phase, training=self.training, reuse=self.reuse)
+
+        def cbn_(name, x):
+            return layers.conditional_batch_normalization(name, x, self.label, self.phase,
+                spectral_norm=self.spectral_norm, update_collection=update_collection,
+                training=self.training, is_project=True, reuse=self.reuse)
+
+        return [id_, caffe_batch_norm_, simple_batch_norm_, default_, cbn_][self.norm_mtd]
+
     def build_inference(self, input, update_collection=None):
         # usually discriminator do not use bn
         bn_partial = self.get_discriminator_batchnorm(update_collection)
@@ -268,9 +275,6 @@ class SimpleConvolutionDiscriminator(basic.SequentialNN):
         class_branch = tf.reduce_mean(class_branch, axis=[1, 2])
         print("=> class:\t" + str(class_branch.get_shape()))
 
-        self.cls_out = layers.linear("class/fc", class_branch, self.n_attr, 
-                    self.spectral_norm, update_collection, self.reuse)
-
         print("=> class:\t" + str(self.cls_out.get_shape()))
         """
 
@@ -280,6 +284,9 @@ class SimpleConvolutionDiscriminator(basic.SequentialNN):
         x = self.check(x, "D/gap/" + self.phase)
         
         # do not use spectral norm in output
+        self.cls_out = layers.linear("class/fc", x, self.n_attr, 
+                    0, update_collection, self.reuse)
+
         x = layers.linear("disc/fc", x, 1,
                         0, update_collection, self.reuse)
 
@@ -289,4 +296,4 @@ class SimpleConvolutionDiscriminator(basic.SequentialNN):
 
         self.disc_out = x
 
-        return self.disc_out#, self.cls_out
+        return self.disc_out, self.cls_out

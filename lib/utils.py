@@ -8,6 +8,13 @@ import tensorflow as tf
 import lib.ops as ops
 import skimage.io as io
 
+def find_tensor_by_name(name, tensorlist):
+    name = name[name.find("/")+1:]
+    for i, t in enumerate(tensorlist):
+        tname = t.name[t.name.find("/")+1:]
+        if name == tname:
+            return t
+
 def partial(func, **kwargs):
     def _func(*kargs):
         return func(*kargs, **kwargs)
