@@ -120,8 +120,10 @@ def hinge_loss(gen_model, disc_model, adv_weight=1.0):
     
     gen_model.cost += raw_gen_cost * adv_weight
     disc_model.cost += (raw_disc_real + raw_disc_fake) * adv_weight
-    gen_model.sum_op.append(tf.summary.scalar("GenRaw", raw_gen_cost))
-    disc_model.sum_op.append(tf.summary.scalar("DiscRaw", raw_disc_real + raw_disc_fake))
+    gen_model.sum_op.append(tf.summary.scalar("generator/adv", raw_gen_cost))
+    disc_model.sum_op.append(tf.summary.scalar("discriminator/adv", raw_disc_real + raw_disc_fake))
+    disc_model.sum_op.append(tf.summary.scalar("discriminator/real", raw_disc_real))
+    disc_model.sum_op.append(tf.summary.scalar("discriminator/fake", raw_disc_fake))
     return raw_gen_cost, raw_disc_real, raw_disc_fake
 
 def diverse_distribution(ps):
