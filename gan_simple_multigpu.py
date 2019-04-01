@@ -137,6 +137,12 @@ def main():
             gen_model, disc_model,
             adv_weight=1.0, summary=False)
 
+        gen_model.vars = [v for v in tf.trainable_variables() if gen_model.name in v.name]
+        disc_model.vars = [v for v in tf.trainable_variables() if disc_model.name in v.name]
+
+        g_tower_grads.append(g_optim.compute_gradients(gen_model.cost, var_list=gen_model.vars, colocate_gradients_with_ops=True))
+        d_tower_grads.append(d_optim.compute_gradients(disc_model.cost, var_list=disc_model.vars, colocate_gradients_with_ops=True))
+
         return gen_model.cost, disc_model.cost, [fake_cls_cost, real_cls_cost, raw_gen_cost, raw_disc_real, raw_disc_fake]
 
     with tf.device("/device:GPU:0"):
