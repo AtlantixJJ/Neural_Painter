@@ -59,6 +59,11 @@ class SequentialNN(object):
         for v in self.vars:
             print("%s\t\t\t\t%s" % (v.name, str(v.get_shape().as_list())))
 
+    def print_variables(self):
+        for v in tf.global_variables():
+            if self.name in v.name:
+                print("%s\t\t\t\t%s" % (v.name, str(v.get_shape().as_list())))
+
     def __call__(self, input, update_collection=None):
         """
         Automatically add scope, and concat input
@@ -98,7 +103,7 @@ class SequentialNN(object):
         self.update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS, scope=self.name)
 
         with tf.control_dependencies(self.update_ops):
-            print("Update dependency of %s:" % self.name)
+            print("=> Update dependency of %s:" % self.name)
             for o in self.update_ops:
                 print(o)
             """

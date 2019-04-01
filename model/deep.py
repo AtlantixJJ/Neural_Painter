@@ -14,9 +14,12 @@ class ResidualGenerator(SimpleConvolutionGenerator):
     
     def build_inference(self, input, update_collection=None):
         #bn_partial = utils.partial(layers.get_norm, method=self.norm_mtd, training=self.training, reuse=self.reuse)
-        bn_partial = utils.partial(layers.conditional_batch_normalization,
+        cbn_partial = utils.partial(layers.conditional_batch_normalization,
+            phase=self.phase,
             spectral_norm=self.spectral_norm, update_collection=update_collection,
             conditions=input, training=self.training, is_project=self.cbn_project, reuse=self.reuse)
+        bn_partial = utils.partial(layers.default_batch_norm, phase=self.phase,
+            training=self.training, reuse=self.reuse)
 
         x = layers.linear("fc1", input, 
                 (self.map_size ** 2) * self.get_depth(0),
@@ -29,7 +32,7 @@ class ResidualGenerator(SimpleConvolutionGenerator):
         for i in range(self.n_layer + 1):
             name = "res%d" % (i+1)
             x = layers.upsample_residual_block(name, x, self.get_depth(i),
-                tf.nn.relu, bn_partial,
+                tf.nn.relu, cbn_partial,
                 self.spectral_norm, update_collection, self.reuse)
             print("=> " + name + ":\t" + str(x.get_shape()))
         
@@ -64,8 +67,8 @@ class ResidualDiscriminator(SimpleConvolutionDiscriminator):
                 layers.LeakyReLU, bn_partial,
                 self.spectral_norm, update_collection, self.reuse)
             print("=> " + name + ":\t" + str(x.get_shape()))
-
-        class_branch = tf.identity(x)
+        
+        #class_branch = tf.identity(x)
 
         for i in range(self.mid_layers, self.n_layer + 1):
             name = "disc/res%d" % i
@@ -74,6 +77,7 @@ class ResidualDiscriminator(SimpleConvolutionDiscriminator):
                 self.spectral_norm, update_collection, self.reuse)
             print("=> " + name + ":\t" + str(x.get_shape()))
 
+        """
         for i in range(self.mid_layers, self.n_layer + 1):
             name = "class/conv%d" % i
             class_branch = layers.downsample_residual_block(name, class_branch, self.get_depth(i),
@@ -84,6 +88,8 @@ class ResidualDiscriminator(SimpleConvolutionDiscriminator):
         class_branch = layers.LeakyReLU(class_branch)
         class_branch = tf.reduce_mean(class_branch, axis=[1, 2])
         print("=> class:\t" + str(class_branch.get_shape()))
+        """
+
         x = layers.LeakyReLU(x)
         x = tf.reduce_mean(x, axis=[1, 2])
         print("=> disc:\t" + str(x.get_shape()))
@@ -91,10 +97,9 @@ class ResidualDiscriminator(SimpleConvolutionDiscriminator):
         self.disc_out = layers.linear("disc/fc", x, 1,
                         self.spectral_norm, update_collection, self.reuse)
 
-        self.cls_out = layers.linear("class/fc", class_branch, self.n_attr, 
+        self.cls_out = layers.linear("class/fc", x, self.n_attr, 
                     self.spectral_norm, update_collection, self.reuse)
 
-        print("=> class:\t" + str(self.cls_out.get_shape()))
         print("=> disc:\t" + str(self.disc_out.get_shape()))
 
         return self.disc_out, self.cls_out

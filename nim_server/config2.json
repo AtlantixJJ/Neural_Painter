@@ -7,25 +7,42 @@
             "model_class": "simple",
             "gen_model": "SimpleConvolutionGenerator",
             "gen_config": {
-                "name": "G",
+                "name": "G_getchu",
                 "out_dim": 3,
-                "map_size": 4,
-                "map_depth": 1024,
-                "n_layer": 5,
-                "norm_mtd": "default",
-                "spectral_norm": true
+                "out_size": 128,
+                "spectral_norm": 0
             },
             "disc_model": "SimpleConvolutionDiscriminator",
             "disc_config": {
-                "name": "D",
-                "map_depth": 32,
-                "n_layer": 5,
+                "name": "D_getchu",
+                "input_size": 128,
                 "n_attr": 34,
-                "norm_mtd": "none"
+                "norm_mtd": 0,
+                "spectral_norm": 0
             },
-            "sery": "06",
-            "field_name": "GGAnimeFace",
-            "model_dir": "~/disk6/FewShotLearning/Neural_Painter/logs/simple_getchu/",
+            "sery": "10",
+            "model_dir": "/home/atlantix/disk6/nim_success/simple_getchu/",
+            "cgan": true
+        },
+        "Human Face": {
+            "model_class": "simple",
+            "gen_model": "SimpleConvolutionGenerator",
+            "gen_config": {
+                "name": "G_celeba",
+                "out_dim": 3,
+                "out_size": 128,
+                "spectral_norm": 0
+            },
+            "disc_model": "SimpleConvolutionDiscriminator",
+            "disc_config": {
+                "name": "D_celeba",
+                "input_size": 128,
+                "n_attr": 40,
+                "norm_mtd": 0,
+                "spectral_norm": 0
+            },
+            "sery": "10",
+            "model_dir": "/home/atlantix/disk6/nim_success/simple_celeba/",
             "cgan": true
         }
     }

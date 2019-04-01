@@ -4,7 +4,7 @@ from model import basic
 import numpy as np
 
 class SimpleConvolutionGenerator(basic.SequentialNN):
-    def __init__(self, map_size=4, map_depth=64, out_size=128, out_dim=3, spectral_norm=1, cbn_project=True, **kwargs):
+    def __init__(self, map_size=4, map_depth=64, out_size=128, out_dim=3, spectral_norm=1, cbn_project=True, norm_mtd=4, **kwargs):
         """
         params:
         map_size:   the edge size of noise map
@@ -20,6 +20,7 @@ class SimpleConvolutionGenerator(basic.SequentialNN):
         self.map_depth = map_depth
         self.n_layer = int(np.log2(out_size)) - int(np.log2(map_size)) - 1
         self.cbn_project = cbn_project
+        self.phase = ""
 
         # use different output kernel size for different output size
         if self.out_size <= 32: self.ksize = 3
@@ -33,23 +34,31 @@ class SimpleConvolutionGenerator(basic.SequentialNN):
         """
         return self.map_depth * (2 ** (self.n_layer - i))
 
+    def set_phase(self, phase):
+        """
+        When using batch norm in discrminator, the distribution of data in different phase is different
+        """
+        self.phase = phase
+
     def get_generator_batchnorm(self, update_collection):
         """
         Define the bn function here, because bn is quite different.
         This should return a partial function with (name, x) as argument and other argument filled
         """
         def func_(name, x):
-            return layers.conditional_batch_normalization(name, x, self.input, 'default',
+            return layers.conditional_batch_normalization(name, x, self.input, self.phase,
                 spectral_norm=self.spectral_norm, update_collection=update_collection,
                 training=self.training, is_project=self.cbn_project, reuse=self.reuse)
-        return func_
+        def id_(name, x):
+            return x
+        return id_
 
     def build_inference(self, input, update_collection=None):
         self.input = input
 
         # conditional bn: must use with conditional GAN
         cbn_partial = self.get_generator_batchnorm(update_collection)
-        bn_partial = utils.partial(layers.default_batch_norm, phase='default',
+        bn_partial = utils.partial(layers.default_batch_norm, phase=self.phase,
             training=self.training, reuse=self.reuse)
 
         x = input
@@ -59,7 +68,7 @@ class SimpleConvolutionGenerator(basic.SequentialNN):
                 (self.map_size ** 2) * self.get_depth(0),
                 self.spectral_norm, update_collection, self.reuse)
         x = tf.reshape(x, [-1, self.map_size, self.map_size, self.get_depth(0)])
-        x = bn_partial('fc1/bn', x)
+        x = cbn_partial('fc1/bn', x)
         x = tf.nn.relu(x)
         print("=> fc1:\t" + str(x.get_shape()))
         x = self.check(x, "G/fc1")
@@ -169,7 +178,7 @@ class MaskConvolutionGenerator(basic.SequentialNN):
         return self.out
 
 class SimpleConvolutionDiscriminator(basic.SequentialNN):
-    def __init__(self, n_attr=34, map_depth=64, map_size=4, input_size=128, spectral_norm=1, **kwargs):
+    def __init__(self, n_attr=34, map_depth=64, map_size=4, input_size=128, spectral_norm=1, norm_mtd=0, **kwargs):
         super(SimpleConvolutionDiscriminator, self).__init__(**kwargs)
 
         self.spectral_norm = spectral_norm
@@ -178,6 +187,8 @@ class SimpleConvolutionDiscriminator(basic.SequentialNN):
         self.map_depth = map_depth
         self.n_layer = int(np.log2(input_size)) - int(np.log2(map_size)) - 1
         self.n_attr = n_attr
+        self.norm_mtd = norm_mtd
+        self.phase = ""
 
         # use different input kernel size for different input size
         if self.input_size <= 32: self.ksize = 3
@@ -279,7 +290,7 @@ class SimpleConvolutionDiscriminator(basic.SequentialNN):
         """
 
         x = tf.reduce_mean(x, axis=[1, 2])
-        print("=> disc:\t" + str(x.get_shape()))
+        print("=> disc/gap:\t" + str(x.get_shape()))
 
         x = self.check(x, "D/gap/" + self.phase)
         

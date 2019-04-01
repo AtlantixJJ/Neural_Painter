@@ -52,11 +52,13 @@ def default_batch_norm(name, inputs, phase='default', training=True, reuse=False
             false_fn=lambda: ops.debug_tensor(population_var, "%s/%s read var: " % (name, phase)))
         """
 
-        train_mean_op = tf.assign(population_mean, cond_new_pm)
-        train_var_op = tf.assign(population_var, cond_new_pv)
+        train_mean_op = tf.assign(population_mean, cond_new_pm, name="assign_mean_" + phase)
+        train_var_op = tf.assign(population_var, cond_new_pv, name="assign_var_" + phase)
+        tf.add_to_collection(tf.GraphKeys.UPDATE_OPS, train_mean_op)
+        tf.add_to_collection(tf.GraphKeys.UPDATE_OPS, train_var_op)
 
-        with tf.control_dependencies([train_mean_op, train_var_op]):
-            x = tf.nn.batch_normalization(inputs, population_mean, population_var, beta, gamma, epsilon)
+        #with tf.control_dependencies([train_mean_op, train_var_op]):
+        x = tf.nn.batch_normalization(inputs, population_mean, population_var, beta, gamma, epsilon)
     return x
 
 def simple_batch_norm(name, inputs, phase='default', training=True, reuse=False, epsilon=1e-6, decay=0.9):
@@ -89,9 +91,11 @@ def simple_batch_norm(name, inputs, phase='default', training=True, reuse=False,
 
         train_mean_op = tf.assign(population_mean, cond_new_pm)
         train_var_op = tf.assign(population_var, cond_new_pv)
+        tf.add_to_collection(tf.GraphKeys.UPDATE_OPS, train_mean_op)
+        tf.add_to_collection(tf.GraphKeys.UPDATE_OPS, train_var_op)
 
-        with tf.control_dependencies([train_mean_op, train_var_op]):
-            x = tf.nn.batch_normalization(inputs, population_mean, population_var, None, None, epsilon)
+        #with tf.control_dependencies([train_mean_op, train_var_op]):
+        x = tf.nn.batch_normalization(inputs, population_mean, population_var, None, None, epsilon)
         return x
 
 def caffe_batch_norm(name, inputs, phase='default', training=True, reuse=False, epsilon=1e-6, decay=0.9):
@@ -129,9 +133,11 @@ def caffe_batch_norm(name, inputs, phase='default', training=True, reuse=False, 
 
         train_mean_op = tf.assign(population_mean, cond_new_pm)
         train_var_op = tf.assign(population_var, cond_new_pv)
+        tf.add_to_collection(tf.GraphKeys.UPDATE_OPS, train_mean_op)
+        tf.add_to_collection(tf.GraphKeys.UPDATE_OPS, train_var_op)
 
-        with tf.control_dependencies([train_mean_op, train_var_op]):
-            x = tf.nn.batch_normalization(inputs, population_mean, population_var, None, None, epsilon)
+        #with tf.control_dependencies([train_mean_op, train_var_op]):
+        x = tf.nn.batch_normalization(inputs, population_mean, population_var, None, None, epsilon)
         return x
 
 def group_normalization(x, G=32, name='group', reuse=False):
@@ -228,18 +234,18 @@ def conditional_batch_normalization(name, inputs, conditions, phase='default', s
             true_fn=lambda: population_var * decay + batch_var * (1 - decay),
             false_fn=lambda: population_var)
 
-        train_mean_op = tf.assign(population_mean, cond_new_pm)
-        train_var_op = tf.assign(population_var, cond_new_pv)
+        train_mean_op = tf.assign(population_mean, cond_new_pm, name="assign_mean_" + phase)
+        train_var_op = tf.assign(population_var, cond_new_pv, name="assign_var_" + phase)
 
-        #tf.add_to_collection(tf.GraphKeys.UPDATE_OPS, train_mean_op)
-        #tf.add_to_collection(tf.GraphKeys.UPDATE_OPS, train_var_op)
+        tf.add_to_collection(tf.GraphKeys.UPDATE_OPS, train_mean_op)
+        tf.add_to_collection(tf.GraphKeys.UPDATE_OPS, train_var_op)
         
         # debug
         #population_mean = ops.debug_tensor(population_mean, "%s:%s/%s" % (name, phase, "mean"))
         #population_var = ops.debug_tensor(population_var, "%s:%s/%s" % (name, phase, "var"))
 
-        with tf.control_dependencies([train_mean_op, train_var_op]):
-            x = tf.nn.batch_normalization(inputs, population_mean, population_var, None, None, epsilon)
+        #with tf.control_dependencies([train_mean_op, train_var_op]):
+        x = tf.nn.batch_normalization(inputs, population_mean, population_var, None, None, epsilon)
         return gamma * x + beta
 
 def conv2d(name, input, output_dim, filter_size=3, stride=1,
@@ -347,21 +353,21 @@ def upsample_residual_block(name, x, dim, activation_fn=tf.nn.relu, norm_fn=None
         base = tf.identity(x)
         h, w, c = base.get_shape()[1:]
 
-        x_skip = deconv2d(name + "/skip", base, dim, 2, 2, spectral, update_collection, reuse)
+        #x_skip = deconv2d("skip", base, dim, 2, 2, spectral, update_collection, reuse)
         #x_skip = tf.image.resize_bilinear(x_skip, (h * 2, w * 2))
-        #x_skip = tf.image.resize_nearest_neighbor(base, (h * 2, w * 2))
-        #x_skip = conv2d(name + "/skip", x_skip, dim, 3, 1, spectral, update_collection, reuse)
+        x_skip = tf.image.resize_nearest_neighbor(base, (h * 2, w * 2))
+        x_skip = conv2d(name + "/skip", x_skip, dim, 3, 1, spectral, update_collection, reuse)
 
-        x = norm_fn(name + "/bn1", x)
+        x = norm_fn("bn1", x)
         x = activation_fn(x)
         #x = tf.image.resize_bilinear(x, (h * 2, w * 2))
         #x = tf.image.resize_nearest_neighbor(x, (h * 2, w * 2))
         #x = conv2d(name + "/conv1", x, c, 3, 1, spectral, update_collection, reuse)
-        x = deconv2d(name + "/conv1", x, dim, 4, 2, spectral, update_collection, reuse)
+        x = deconv2d("conv1", x, dim, 4, 2, spectral, update_collection, reuse)
 
-        x = norm_fn(name + "/bn2", x)
+        x = norm_fn("bn2", x)
         x = activation_fn(x)
-        x = conv2d(name + "/conv2", x, dim, 3, 1, spectral, update_collection)
+        x = conv2d("conv2", x, dim, 3, 1, spectral, update_collection)
 
     return x + x_skip
 
@@ -372,16 +378,16 @@ def downsample_residual_block(name, x, dim, activation_fn=tf.nn.relu, norm_fn=No
         c = base.get_shape()[-1]
         
         x_skip = tf.nn.avg_pool(base, 2, 2, "VALID")
-        x_skip = conv2d(name + "/skip", x_skip, dim, 3, 1, spectral, update_collection, reuse)
+        x_skip = conv2d("skip", x_skip, dim, 3, 1, spectral, update_collection, reuse)
         
-        x = norm_fn(name + "/bn1", x)
+        x = norm_fn("bn1", x)
         x = activation_fn(x)
-        x = conv2d(name + "/conv1", x, c, 3, 1, spectral, update_collection, reuse)
+        x = conv2d("conv1", x, c, 3, 1, spectral, update_collection, reuse)
         x = tf.nn.avg_pool(x, 2, 2, "VALID")
 
-        x = norm_fn(name + "/bn2", x)
+        x = norm_fn("bn2", x)
         x = activation_fn(x)
-        x = conv2d(name + "/conv2", x, dim, 3, 1, spectral, update_collection)
+        x = conv2d("conv2", x, dim, 3, 1, spectral, update_collection)
         
     return x + x_skip
 

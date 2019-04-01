@@ -8,7 +8,7 @@ from lib import ops, utils
 import numpy as np
 from loss.common_loss import gradient_penalty
 
-def classifier_loss(gen_model, disc_model, x_real, c_label, c_noise, weight=1.0):
+def classifier_loss(gen_model, disc_model, x_real, c_label, c_noise, weight=1.0, summary=True):
     print("=> classifier loss build")
 
     real_cls = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(
@@ -24,11 +24,13 @@ def classifier_loss(gen_model, disc_model, x_real, c_label, c_noise, weight=1.0)
 
     print("=> classifier loss summary")
     
-    with tf.device("/device:CPU:0"):
-        real_cls_sum = tf.summary.scalar("real_cls", real_cls)
-        fake_cls_sum = tf.summary.scalar("fake_cls", fake_cls)
-
-    disc_model.sum_op.extend([real_cls_sum, fake_cls_sum])
+    if summary:
+        with tf.device("/device:CPU:0"):
+            real_cls_sum = tf.summary.scalar("real_cls", real_cls)
+            fake_cls_sum = tf.summary.scalar("fake_cls", fake_cls)
+        disc_model.sum_op.extend([real_cls_sum, fake_cls_sum])
+    
+    return real_cls, fake_cls
 
 def wass_loss(gen_model, disc_model, gen_input, x_real, adv_weight=1.0, gp_weight=10.0):
     print("=> Wassertain loss build")
@@ -112,7 +114,7 @@ def dragan_loss(gen_model, disc_model, x_real, adv_weight=1.0, gp_weight=1.0):
     disc_model.cost += gp_weight * raw_gp
     disc_model.sum_op.append(tf.summary.scalar("gradient penalty (dra)", raw_gp))
 
-def hinge_loss(gen_model, disc_model, adv_weight=1.0):
+def hinge_loss(gen_model, disc_model, adv_weight=1.0, summary=True):
     print("=> Build Hinge loss")
     raw_gen_cost = -tf.reduce_mean(disc_model.disc_fake)
     raw_disc_real = tf.reduce_mean(tf.nn.relu(1 - disc_model.disc_real))
@@ -120,10 +122,12 @@ def hinge_loss(gen_model, disc_model, adv_weight=1.0):
     
     gen_model.cost += raw_gen_cost * adv_weight
     disc_model.cost += (raw_disc_real + raw_disc_fake) * adv_weight
-    gen_model.sum_op.append(tf.summary.scalar("generator/adv", raw_gen_cost))
-    disc_model.sum_op.append(tf.summary.scalar("discriminator/adv", raw_disc_real + raw_disc_fake))
-    disc_model.sum_op.append(tf.summary.scalar("discriminator/real", raw_disc_real))
-    disc_model.sum_op.append(tf.summary.scalar("discriminator/fake", raw_disc_fake))
+    if summary:
+        with tf.device("/device:CPU:0"):
+            gen_model.sum_op.append(tf.summary.scalar("generator/adv", raw_gen_cost))
+            disc_model.sum_op.append(tf.summary.scalar("discriminator/adv", raw_disc_real + raw_disc_fake))
+            disc_model.sum_op.append(tf.summary.scalar("discriminator/real", raw_disc_real))
+            disc_model.sum_op.append(tf.summary.scalar("discriminator/fake", raw_disc_fake))
     return raw_gen_cost, raw_disc_real, raw_disc_fake
 
 def diverse_distribution(ps):

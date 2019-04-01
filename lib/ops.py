@@ -101,6 +101,15 @@ def get_random(kind, shape):
         """
         Return a generated probability
         """
+
+        """ old version
+        for i in range(len(stList)-1):
+            # skip normalization of switch variable
+            if stList[i+1] - stList[i] <= 1: continue
+            for j in range(shape[0]):
+                res[j, stList[i]: stList[i+1]] /= res[j, stList[i]: stList[i+1]].sum()
+        """
+
         res = np.random.rand(*shape)
         stList = [0, 13, 15, 18, 19, 20, 21, 22, 23, 24, 34]
         res = []
@@ -120,14 +129,8 @@ def get_random(kind, shape):
                     else:
                         # normalize to probability 1
                         vec[stList[i]: stList[i+1]] /= vec[stList[i]: stList[i+1]].sum()
+            res.append(vec)
         
-        """
-        for i in range(len(stList)-1):
-            # skip normalization of switch variable
-            if stList[i+1] - stList[i] <= 1: continue
-            for j in range(shape[0]):
-                res[j, stList[i]: stList[i+1]] /= res[j, stList[i]: stList[i+1]].sum()
-        """
         return np.stack(res, 0)
 
     if kind == "uniform":
@@ -220,7 +223,7 @@ def make_losslist_parallel(fn, num_gpus, **kwargs):
         if type(v) is tf.Tensor:
             # tensor: split averagely to number of gpu
             in_splits[k] = tf.split(v, num_gpus)
-        elif type(v) is list:
+        elif type(v) is list and type(v[0]) is tf.Tensor:
             # list of tensors: split each
             gpu_list = []
             for item in v:
@@ -228,11 +231,15 @@ def make_losslist_parallel(fn, num_gpus, **kwargs):
             in_splits[k] = []
             for i in range(num_gpus):
                 in_splits[k].append([gpu_list[j][i] for j in range(len(gpu_list))])
+        elif type(v) is list:
+            # list of objs
+            in_splits[k] = v
         else:
             # normal arguments
             in_splits[k] = [v] * num_gpus
 
     out_losses = []
+    sublosses = []
     for i in range(num_gpus):
         with tf.device(tf.DeviceSpec(device_type="GPU", device_index=i)):
             #with tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
@@ -240,11 +247,21 @@ def make_losslist_parallel(fn, num_gpus, **kwargs):
             #print(in_kwargs)
             loss_list = fn(**in_kwargs)
             for i in range(len(loss_list)):
-                if len(out_losses) <= i:
-                    out_losses.append([])
-                out_losses[i].append(loss_list[i])
+                if type(loss_list[i]) is list:
+                    sublosses.append(loss_list[i])
+                else:
+                    if len(out_losses) <= i:
+                        out_losses.append([])
+                    out_losses[i].append(loss_list[i])
+                    print(loss_list[i])
 
-    return [tf.add_n(loss_gpu) for loss_gpu in out_losses]
+    sum_sublosses = []
+    for j in range(len(sublosses[0])):
+        sum_sublosses.append(0.0)
+        for i in range(num_gpus):
+            sum_sublosses[j] += sublosses[i][j]
+
+    return [tf.add_n(loss_gpu) for loss_gpu in out_losses], sum_sublosses
 
 def debug_tensor(x, msg=None):
     """

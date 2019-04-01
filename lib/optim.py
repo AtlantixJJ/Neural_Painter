@@ -26,8 +26,8 @@ class PictureOptimizer(object):
 
         # determine gen & disc model path
         if len(CONFIG["sery"]) > 0:
-            self.disc_dir = CONFIG['model_dir'] + ( "gen_%s.npz" % CONFIG["sery"]) 
-            self.gen_dir  = CONFIG['model_dir'] + ("disc_%s.npz" % CONFIG["sery"]) 
+            self.disc_dir = CONFIG['model_dir'] + ("disc_%s.npz" % CONFIG["sery"]) 
+            self.gen_dir  = CONFIG['model_dir'] + ("gen_%s.npz" % CONFIG["sery"]) 
         else:
             self.disc_dir = CONFIG['model_dir'] +  "gen.npz" 
             self.gen_dir  = CONFIG['model_dir'] + "disc.npz" 
@@ -44,7 +44,7 @@ class PictureOptimizer(object):
         self.disc_model = model_class(**disc_config)
 
         # the output image size
-        self.size = (2 ** gen_config['n_layer']) * gen_config['map_size']
+        self.size = gen_config['out_size']
         self.input_dim = gen_config['out_dim']
         self.n_attrs = disc_config['n_attr']
         self.output_shape = [self.size, self.size, self.input_dim]

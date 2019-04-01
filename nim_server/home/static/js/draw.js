@@ -28,7 +28,7 @@ var COLORS = [
 
 var MODEL_NAMES = [
   'Anime Face',
-  //'人脸草图',
+  'Human Face',
   //'半身草图',
 ]
 

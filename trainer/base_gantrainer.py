@@ -116,7 +116,7 @@ class BaseGANTrainer(BaseTrainer):
                     y_ed=start_lr / 10,
                     cur_x=self.global_iter)
             else:
-                cur_lr = start_lr
+                cur_lr = start_lr / 10
             return cur_lr
             
         self.feed.update({
@@ -125,6 +125,15 @@ class BaseGANTrainer(BaseTrainer):
         }) 
 
     def make_feed(self, sample):
+        if len(sample[0].shape) == 5:
+            s = sample[0].shape
+            sample[0] = sample[0].reshape([s[0] * s[1], s[2], s[3], s[4]])
+            s = sample[1].shape
+            sample[1] = sample[1].reshape([s[0] * s[1], s[2]])
+        if sample[0].shape[0] < self.batch_size:
+            print("=> Skip incomplete batch")
+            return False
+            
         self.x_real_img = np.array(sample[0])
         
         if self.FLAGS.cgan:
@@ -141,6 +150,7 @@ class BaseGANTrainer(BaseTrainer):
             self.disc_model.training    : True,
             self.gen_model.training     : True
         })
+        return True
     
     def resample_feed(self):
         """
@@ -157,38 +167,22 @@ class BaseGANTrainer(BaseTrainer):
     def train_epoch(self):
         self.last_gen_loss, self.last_disc_loss = 0.0, 0.0
 
-        def inc_log(sum_, inc_global=True):
-            self.summary_writer.add_summary(sum_, self.global_iter)
-            if inc_global:
-                self.global_iter = self.global_iter + 1
-
         print("=> Epoch %d" % self.epoch_count)
 
+        self.run_time = 0
         start_time = time.clock()
 
         self.dataloader.reset()
         self.epoch_count += 1
-        LEN = len(self.dataloader)
-        for i_ in tqdm.tqdm(range(LEN)):
+        for i_ in tqdm.tqdm(range(len(self.dataloader))):
             sample = self.dataloader[i_]
-            if len(sample[0].shape) == 5:
-                s = sample[0].shape
-                sample[0] = sample[0].reshape([s[0] * s[1], s[2], s[3], s[4]])
-                s = sample[1].shape
-                sample[1] = sample[1].reshape([s[0] * s[1], s[2]])
-            if sample[0].shape[0] < self.batch_size:
-                print("=> Skip incomplete batch")
-                continue
-            self.make_feed(sample)
+            if not self.make_feed(sample): continue
             last_iter = self.global_iter
 
             t0 = time.clock()
 
             for j in range(self.FLAGS.disc_iter):
-                _, sum_ = self.sess.run([
-                    self.disc_model.train_op,
-                    self.disc_model.sum_op], self.feed)
-                inc_log(sum_, True)
+                self.sess.run(self.disc_model.train_op, self.feed)
                 self.disc_tot_iter += 1
                 self.resample_feed()
 
@@ -197,25 +191,21 @@ class BaseGANTrainer(BaseTrainer):
                         self.sample_input : self.cache.get()[0],
                         self.cache.batch_full : len(self.cache.database[0])
                         })
-                    _, sum_, sum__ = self.sess.run([
-                        self.sample_train_op,
-                        self.sample_sum,
-                        self.cache.batch_full_sum], self.feed)
-                    self.summary_writer.add_summary(sum_, self.sample_iter)
-                    self.summary_writer.add_summary(sum__, self.sample_iter)
-                    self.disc_tot_iter += 1
-                    self.sample_iter += 1
+                    self.sess.run(self.sample_train_op, self.feed)
 
             for j in range(self.FLAGS.gen_iter):
-                fake_sample, _, sum_ = self.sess.run([
+                fake_sample, _ = self.sess.run([
                     self.gen_model.x_fake,
-                    self.gen_model.train_op, 
-                    self.gen_model.sum_op], self.feed)
-                if np.random.rand() < 1.0 / self.batch_size / 2 and self.use_cache:
+                    self.gen_model.train_op], self.feed)
+                if self.use_cache and np.random.rand() < 1.0 / self.batch_size / 2:
                     self.cache.add([fake_sample], self.global_iter)
-                inc_log(sum_, True)
                 self.gen_tot_iter += 1
                 self.resample_feed()
+            
+            if self.step_sum_op is not None:
+                sum_ = self.sess.run(self.step_sum_op, self.feed)
+                self.summary_writer.add_summary(sum_, self.global_iter)
+            self.global_iter += 1
             
             self.run_time += time.clock() - t0
             self.total_time = time.clock() - start_time

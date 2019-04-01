@@ -9,7 +9,7 @@ class BaseTrainer(object):
     """
     The base trainer class, should not be instantiated directly.
     """
-    def __init__(self, int_sum_op, dataloader, FLAGS, is_debug=False):
+    def __init__(self, step_sum_op, int_sum_op, dataloader, FLAGS, is_debug=False):
         """
         Args:
         FLAGS   :   TF app's FLAGS.
@@ -20,6 +20,7 @@ class BaseTrainer(object):
         self.FLAGS = FLAGS
         self.num_iter = FLAGS.num_iter
         self.batch_size = FLAGS.batch_size
+        self.step_sum_op = step_sum_op
         self.int_sum_op = int_sum_op
         self.is_init = False
 
@@ -76,6 +77,7 @@ class BaseTrainer(object):
         self.config = tf.ConfigProto()
         # Set GPU memory usage
         self.config.gpu_options.allow_growth = True
+        self.config.allow_soft_placement = False
         # Allow soft placement
         # self.config.allow_soft_placement=True
         # Make experiment storage dir
