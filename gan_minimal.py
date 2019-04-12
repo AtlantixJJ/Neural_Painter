@@ -39,9 +39,6 @@ tf.app.flags.DEFINE_boolean("cgan", True, "If to use ACGAN")
 tf.app.flags.DEFINE_integer("img_size", 128, "The size of input image, 64 | 128")
 tf.app.flags.DEFINE_string("model_name", "simple", "model type: simple | simple_mask | hg | hg_mask")
 tf.app.flags.DEFINE_string("data_dir", "/home/atlantix/data/celeba/img_align_celeba.zip", "data path")
-tf.app.flags.DEFINE_boolean("cbn_project", True, "If to project to depth dim")
-tf.app.flags.DEFINE_integer("bn", 0, "")
-tf.app.flags.DEFINE_integer("phases", 1, "1 | 2")
 
 # ------ train control flags ----- #
 
@@ -64,11 +61,6 @@ os.environ["CUDA_VISIBLE_DEVICES"] = str(FLAGS.gpu)
 
 def main():
     size = FLAGS.img_size
-
-    # debug
-    if len(FLAGS.train_dir) < 1:
-        bn_name = ["nobn", "caffebn", "simplebn", "defaultbn", "cbn"]
-        FLAGS.train_dir = os.path.join("logs", FLAGS.model_name + "_" + bn_name[FLAGS.bn] + "_" + str(FLAGS.phases))
 
     if FLAGS.cgan:
         # the label file is npy format
@@ -109,73 +101,42 @@ def main():
 
     # look up the config function from lib.config module
     gen_model, disc_model = getattr(config, FLAGS.model_name)(FLAGS.img_size, dataset.class_num)
-    disc_model.norm_mtd = FLAGS.bn
 
-    x_fake = gen_model(gen_input, update_collection=None)
-    gen_model.set_reuse()
+    x_fake = gen_model(gen_input, update_collection=tf.GraphKeys.UPDATE_OPS)
     gen_model.x_fake = x_fake
+    gen_model.set_reuse()
     
-    disc_model.set_label(c_noise)
-    if FLAGS.phases > 1:
-        disc_model.set_phase("fake")
-    else:
-        disc_model.set_phase("default")
-    disc_fake, fake_cls_logits = disc_model(x_fake, update_collection=None)
+    disc_model.label = c_noise
+    disc_fake, fake_cls_logits = disc_model(x_fake, update_collection=tf.GraphKeys.UPDATE_OPS)
     disc_model.set_reuse()
 
-    """ for debug
-    tensors = gen_model.recorded_tensors + disc_model.recorded_tensors
-    names = gen_model.recorded_names + disc_model.recorded_names
-    grads = tf.gradients(disc_fake, tensors)
-
-    grad_sums = []
-    for n,g,t in zip(names, grads, tensors):
-        print(n, g)
-        if g is not None:
-            grad_sums.append(tf.summary.histogram("grad/" + n, g))
-    gen_model.sum_op.extend(grad_sums)
-
-    disc_model.recorded_tensors = []
-    disc_model.recorded_names = []
-    """
-
-    disc_model.set_label(c_label)
-    if FLAGS.phases > 1:
-        disc_model.set_phase("real")
-    else:
-        disc_model.set_phase("default")
-    disc_real, real_cls_logits = disc_model(x_real, update_collection=None)
+    disc_model.label = c_label
+    disc_real, real_cls_logits = disc_model(x_real, update_collection=tf.GraphKeys.UPDATE_OPS)
     disc_model.disc_real        = disc_real
     disc_model.disc_fake        = disc_fake 
     disc_model.real_cls_logits = real_cls_logits
     disc_model.fake_cls_logits = fake_cls_logits
 
-    """ for debug
-    grads = tf.gradients(disc_real, disc_model.recorded_tensors)
+    raw_gen_cost, raw_disc_real, raw_disc_fake = loss.hinge_loss(gen_model, disc_model, adv_weight=1.0, summary=False)
+    disc_model.disc_real_loss = raw_disc_real
+    disc_model.disc_fake_loss = raw_disc_fake
 
-    grad_sums = []
-    for n,g,t in zip(disc_model.recorded_names, grads, disc_model.recorded_tensors):
-        print(n, g)
-        if g is not None:
-            grad_sums.append(tf.summary.histogram("grad/" + n, g))
-    disc_model.sum_op.extend(grad_sums)
-    """
+    if FLAGS.cgan:
+        real_cls_cost, fake_cls_cost = loss.classifier_loss(gen_model, disc_model, x_real, c_label, c_noise,
+        weight=1.0 / dataset.class_num, summary=False)
 
-    int_sum_op = []
-    
-    if FLAGS.use_cache:
-        disc_fake_sample = disc_model(x_fake_sample)[0]
-        disc_cost_sample = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(
-                logits=disc_fake_sample,
-                labels=tf.zeros_like(disc_fake_sample)), name="cost_disc_fake_sample")
-        disc_cost_sample_sum = tf.summary.scalar("disc_sample", disc_cost_sample)
+    update_op = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
+    for v in update_op:
+        print(v.name)
 
-        fake_sample_grid = ops.get_grid_image_summary(x_fake_sample, 4)
-        int_sum_op.append(tf.summary.image("fake sample", fake_sample_grid))
+    step_sum_op = [] # summary at every step
+    subloss_names = ["fake_cls", "real_cls", "gen", "disc_real", "disc_fake"]
+    sublosses = [fake_cls_cost, real_cls_cost, raw_gen_cost, raw_disc_real, raw_disc_fake]
+    for n,l in zip(subloss_names, sublosses):
+        step_sum_op.append(tf.summary.scalar(n, l))
+    step_sum_op = tf.summary.merge(step_sum_op)
 
-        sample_method = [disc_cost_sample, disc_cost_sample_sum, x_fake_sample]
-    else:
-        sample_method = None
+    int_sum_op = [] # summary at some interval
 
     grid_x_fake = ops.get_grid_image_summary(gen_model.x_fake, 4)
     int_sum_op.append(tf.summary.image("generated image", grid_x_fake))
@@ -185,26 +146,8 @@ def main():
 
     int_sum_op = tf.summary.merge(int_sum_op)
 
-    raw_gen_cost, raw_disc_real, raw_disc_fake = loss.hinge_loss(gen_model, disc_model, adv_weight=1.0, summary=False)
-    disc_model.disc_real_loss = raw_disc_real
-    disc_model.disc_fake_loss = raw_disc_fake
-
-    #bncloss, sum_ = loss.batchnorm_contrast_loss("fake", "real")
-    #gen_model.cost += bncloss
-    #gen_model.sum_op.extend(sum_)
-
-    if FLAGS.cgan:
-        fake_cls_cost, real_cls_cost = loss.classifier_loss(gen_model, disc_model, x_real, c_label, c_noise,
-        weight=1.0 / dataset.class_num, summary=False)
-
-    step_sum_op = []
-    subloss_names = ["fake_cls", "real_cls", "gen", "disc_real", "disc_fake"]
-    sublosses = [fake_cls_cost, real_cls_cost, raw_gen_cost, raw_disc_real, raw_disc_fake]
-    for n,l in zip(subloss_names, sublosses):
-        step_sum_op.append(tf.summary.scalar(n, l))
-    step_sum_op = tf.summary.merge(step_sum_op)
-
-    ModelTrainer = trainer.base_gantrainer.BaseGANTrainer(#trainer.separated_gantrainer.SeparatedGANTrainer(#
+    ModelTrainer = trainer.base_gantrainer.BaseGANTrainer(
+        update_op=update_op,
         int_sum_op=int_sum_op,
         step_sum_op=step_sum_op,
         dataloader=dl,
@@ -213,11 +156,7 @@ def main():
         disc_model=disc_model,
         gen_input=gen_input,
         x_real=x_real,
-        label=c_label,
-        sample_method=sample_method)
-
-    #command_controller = trainer.cmd_ctrl.CMDControl(ModelTrainer)
-    #command_controller.start_thread()
+        label=c_label)
 
     print("=> Build train op")
     ModelTrainer.build_train_op()
@@ -226,9 +165,6 @@ def main():
     gen_model.print_trainble_vairables()
     print("=> ##### Discriminator Variable #####")
     disc_model.print_trainble_vairables()
-    print("=> ##### All Variable #####")
-    for v in tf.trainable_variables():
-        print("%s\t\t\t\t%s" % (v.name, str(v.get_shape().as_list())))
     print("=> #### Moving Variable ####")
     for v in tf.global_variables():
         if "moving" in v.name:

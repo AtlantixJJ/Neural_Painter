@@ -124,7 +124,7 @@ def hinge_loss(gen_model, disc_model, adv_weight=1.0, summary=True):
     disc_model.cost += (raw_disc_real + raw_disc_fake) * adv_weight
     if summary:
         with tf.device("/device:CPU:0"):
-            gen_model.sum_op.append(tf.summary.scalar("generator/adv", raw_gen_cost))
+            gen_model.sum_op.append( tf.summary.scalar("generator/adv", raw_gen_cost))
             disc_model.sum_op.append(tf.summary.scalar("discriminator/adv", raw_disc_real + raw_disc_fake))
             disc_model.sum_op.append(tf.summary.scalar("discriminator/real", raw_disc_real))
             disc_model.sum_op.append(tf.summary.scalar("discriminator/fake", raw_disc_fake))

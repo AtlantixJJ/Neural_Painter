@@ -8,6 +8,15 @@ import tensorflow as tf
 import lib.ops as ops
 import skimage.io as io
 
+def try_add_collection(ops, collection):
+    a = ""
+    a.__enter__ = lambda : 0
+    if collection == "no_ops": return a
+    if collection == None: return tf.control_dependencies(ops)
+    for op in ops:
+        tf.add_to_collection(collection, op)
+    return a
+
 def find_tensor_by_name(name, tensorlist):
     name = name[name.find("/")+1:]
     for i, t in enumerate(tensorlist):

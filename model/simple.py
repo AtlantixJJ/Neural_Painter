@@ -40,26 +40,12 @@ class SimpleConvolutionGenerator(basic.SequentialNN):
         """
         self.phase = phase
 
-    def get_generator_batchnorm(self, update_collection):
-        """
-        Define the bn function here, because bn is quite different.
-        This should return a partial function with (name, x) as argument and other argument filled
-        """
-        def func_(name, x):
-            return layers.conditional_batch_normalization(name, x, self.input, self.phase,
-                spectral_norm=self.spectral_norm, update_collection=update_collection,
-                training=self.training, is_project=self.cbn_project, reuse=self.reuse)
-        def id_(name, x):
-            return x
-        return id_
-
     def build_inference(self, input, update_collection=None):
         self.input = input
 
         # conditional bn: must use with conditional GAN
-        cbn_partial = self.get_generator_batchnorm(update_collection)
-        bn_partial = utils.partial(layers.default_batch_norm, phase=self.phase,
-            training=self.training, reuse=self.reuse)
+        cbn_partial = utils.partial(layers.conditional_batch_normalization, conditions=self.input, phase=self.phase, update_collection=update_collection, is_project=self.cbn_project, reuse=self.reuse)
+        bn_partial = utils.partial(layers.default_batch_norm, phase=self.phase, update_collection=update_collection, reuse=self.reuse)
 
         x = input
         x = self.check(x, "G/input")
@@ -68,7 +54,7 @@ class SimpleConvolutionGenerator(basic.SequentialNN):
                 (self.map_size ** 2) * self.get_depth(0),
                 self.spectral_norm, update_collection, self.reuse)
         x = tf.reshape(x, [-1, self.map_size, self.map_size, self.get_depth(0)])
-        x = cbn_partial('fc1/bn', x)
+        x = bn_partial('fc1/bn', x)
         x = tf.nn.relu(x)
         print("=> fc1:\t" + str(x.get_shape()))
         x = self.check(x, "G/fc1")
@@ -226,12 +212,10 @@ class SimpleConvolutionDiscriminator(basic.SequentialNN):
             return layers.simple_batch_norm(name, x, phase=self.phase, training=self.training, reuse=self.reuse)
 
         def default_(name, x):
-            return layers.default_batch_norm(name, x, phase=self.phase, training=self.training, reuse=self.reuse)
+            return layers.default_batch_norm(name, x, phase=self.phase, update_collection=update_collection, reuse=self.reuse)
 
         def cbn_(name, x):
-            return layers.conditional_batch_normalization(name, x, self.label, self.phase,
-                spectral_norm=self.spectral_norm, update_collection=update_collection,
-                training=self.training, is_project=True, reuse=self.reuse)
+            return layers.conditional_batch_normalization(name, x, self.label, self.phase, update_collection=update_collection, is_project=True, reuse=self.reuse)
 
         return [id_, caffe_batch_norm_, simple_batch_norm_, default_, cbn_][self.norm_mtd]
 
@@ -242,21 +226,21 @@ class SimpleConvolutionDiscriminator(basic.SequentialNN):
         x = tf.identity(input)
         x = self.check(x, "D/input/" + self.phase)
   
-        x = layers.conv2d("main/conv1", x, self.get_depth(0), self.ksize, 1,
+        x = layers.conv2d("conv1", x, self.get_depth(0), self.ksize, 1,
                     self.spectral_norm, update_collection, self.reuse)
-        x = bn_partial("main/bn1", x)
+        x = bn_partial("bn1", x)
         x = layers.LeakyReLU(x)
-        print("=> main/conv1:\t" + str(x.get_shape()))
+        print("=> conv1:\t" + str(x.get_shape()))
         x = self.check(x, "D/conv1/" + self.phase)
 
         self.mid_layers = self.n_layer // 2 + 1
 
         for i in range(self.mid_layers):
-            name = "main/conv%d" % (i+2)
+            name = "conv%d" % (i+2)
             x = layers.conv2d(name, x,
                 self.get_depth(i), 4, 2,
                 self.spectral_norm, update_collection, self.reuse)
-            x = bn_partial("main/bn%d" % (i+2), x)
+            x = bn_partial("bn%d" % (i+2), x)
             x = layers.LeakyReLU(x)
             print("=> " + name + ":\t" + str(x.get_shape()))
             x = self.check(x, "D/" + name + "/"  + self.phase)
@@ -264,31 +248,15 @@ class SimpleConvolutionDiscriminator(basic.SequentialNN):
         #class_branch = tf.identity(x)
 
         for i in range(self.mid_layers, self.n_layer + 1):
-            name = "disc/conv%d" % (i+2)
+            name = "conv%d" % (i+2)
             x = layers.conv2d(name, x,
                 self.get_depth(i), 4, 2,
                 self.spectral_norm, update_collection, self.reuse)
-            x = bn_partial("disc/bn%d" % (i+2), x)
+            x = bn_partial("bn%d" % (i+2), x)
             x = layers.LeakyReLU(x)
             print("=> " + name + ":\t" + str(x.get_shape()))
             x = self.check(x, "D/" + name + "/" + self.phase)
         
-        """
-        for i in range(self.mid_layers, self.n_layer + 1):
-            name = "class/conv%d" % (i+2)
-            class_branch = layers.conv2d(name, class_branch,
-                self.get_depth(i), 4, 2,
-                self.spectral_norm, update_collection, self.reuse)
-            x = bn_partial("class/bn%d" % (i+2), x)
-            class_branch = layers.LeakyReLU(class_branch)
-            print("=> " + name + ":\t" + str(class_branch.get_shape()))
-
-        class_branch = tf.reduce_mean(class_branch, axis=[1, 2])
-        print("=> class:\t" + str(class_branch.get_shape()))
-
-        print("=> class:\t" + str(self.cls_out.get_shape()))
-        """
-
         x = tf.reduce_mean(x, axis=[1, 2])
         print("=> disc/gap:\t" + str(x.get_shape()))
 

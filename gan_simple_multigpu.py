@@ -50,7 +50,7 @@ tf.app.flags.DEFINE_float("d_lr", 4e-4, "learning rate")
 tf.app.flags.DEFINE_integer("batch_size", 128, "training batch size")
 tf.app.flags.DEFINE_integer("num_iter", 200000, "training iteration")
 tf.app.flags.DEFINE_integer("dec_iter", 100000, "training iteration")
-tf.app.flags.DEFINE_integer("disc_iter", 2, "discriminator training iter")
+tf.app.flags.DEFINE_integer("disc_iter", 1, "discriminator training iter")
 tf.app.flags.DEFINE_integer("gen_iter", 1, "generative training iter")
 
 FLAGS = tf.app.flags.FLAGS
@@ -107,7 +107,34 @@ def main():
     gen_model.spectral_norm = FLAGS.sn
     disc_model.cbn_project = FLAGS.cbn_project
     disc_model.spectral_norm = FLAGS.sn
-    
+
+    ModelTrainer = trainer.base_gantrainer.BaseGANTrainer(
+        step_sum_op=None,
+        int_sum_op=None,
+        dataloader=dl,
+        FLAGS=FLAGS,
+        gen_model=gen_model,
+        disc_model=disc_model,
+        gen_input=gen_input,
+        x_real=x_real,
+        label=c_label)
+
+    g_tower_grads = []
+    d_tower_grads = []
+    g_optim = tf.train.AdamOptimizer(
+                learning_rate=ModelTrainer.g_lr,
+                beta1=0.,
+                beta2=0.9)
+    d_optim = tf.train.AdamOptimizer(
+                learning_rate=ModelTrainer.d_lr,
+                beta1=0.,
+                beta2=0.9)
+
+    grad_x = []
+    grad_x_name = []
+    xs = []
+    x_name = []
+
     def tower(gpu_id, gen_input, x_real, c_label=None, c_noise=None, update_collection=None, loss_collection=[]):
         """
         The loss function builder of gen and disc
@@ -122,6 +149,8 @@ def main():
         disc_model.set_phase("gpu%d" % gpu_id)
         disc_real, real_cls_logits = disc_model(x_real, update_collection=update_collection)
         disc_model.set_reuse()
+        disc_model.recorded_tensors = []
+        disc_model.recorded_names = []
         disc_fake, fake_cls_logits = disc_model(x_fake, update_collection=update_collection)
         disc_model.disc_real        = disc_real       
         disc_model.disc_fake        = disc_fake       
@@ -139,32 +168,95 @@ def main():
 
         gen_model.vars = [v for v in tf.trainable_variables() if gen_model.name in v.name]
         disc_model.vars = [v for v in tf.trainable_variables() if disc_model.name in v.name]
+        g_grads = tf.gradients(gen_model.cost, gen_model.vars, colocate_gradients_with_ops=True)
+        d_grads = tf.gradients(disc_model.cost, disc_model.vars, colocate_gradients_with_ops=True)
+        g_grads = [tf.check_numerics(g, "G grad nan: " + str(g)) for g in g_grads]
+        d_grads = [tf.check_numerics(g, "D grad nan: " + str(g)) for g in d_grads]
+        g_tower_grads.append(g_grads)
+        d_tower_grads.append(d_grads)
 
-        g_tower_grads.append(g_optim.compute_gradients(gen_model.cost, var_list=gen_model.vars, colocate_gradients_with_ops=True))
-        d_tower_grads.append(d_optim.compute_gradients(disc_model.cost, var_list=disc_model.vars, colocate_gradients_with_ops=True))
+        tensors = gen_model.recorded_tensors + disc_model.recorded_tensors
+        names = gen_model.recorded_names + disc_model.recorded_names
+        if gpu_id == 0: x_name.extend(names)
+        xs.append(tensors)
+        names = names[::-1]
+        tensors = tensors[::-1]
+        grads = tf.gradients(disc_fake, tensors, colocate_gradients_with_ops=True)
+        for n,g in zip(names, grads):
+            print(n, g)
+        grad_x.append([tf.check_numerics(g, "BP nan: " + str(g)) for g in grads])
+        if gpu_id == 0: grad_x_name.extend(names)
+        disc_model.recorded_tensors = []
+        disc_model.recorded_names = []
+        gen_model.recorded_tensors = []
+        gen_model.recorded_names = []
 
         return gen_model.cost, disc_model.cost, [fake_cls_cost, real_cls_cost, raw_gen_cost, raw_disc_real, raw_disc_fake]
 
-    with tf.device("/device:GPU:0"):
-        l1, l2, ot1 = tower(0, gen_input=[gen_input[0][:64], gen_input[1][:64]], x_real=x_real[:64], c_label=c_label[:64], c_noise=c_noise[:64], update_collection=tf.GraphKeys.UPDATE_OPS)
-    with tf.device("/device:GPU:1"):
-        l3, l4, ot2 = tower(1, gen_input=[gen_input[0][64:], gen_input[1][64:]], x_real=x_real[64:], c_label=c_label[64:], c_noise=c_noise[64:], update_collection=tf.GraphKeys.UPDATE_OPS)
-    gen_model.cost = l1 + l3
-    disc_model.cost = l2 + l4
-    sub_losses = [ot1[i] + ot2[i] for i in range(len(ot1))]
-    """
-    total_losses, sub_losses = ops.make_losslist_parallel(tower, NUM_GPU,
-        gpu_id=list(range(NUM_GPU)), gen_input=gen_input, x_real=x_real, c_label=c_label, c_noise=c_noise, update_collection=tf.GraphKeys.UPDATE_OPS)
-    gen_model.cost, disc_model.cost = total_losses
-    """
+    def average_gradients(tower_grads):
+        average_grads = []
+        num_gpus = len(tower_grads)
+        num_items = len(tower_grads[0])
+        for i in range(num_items):
+            average_grads.append(0.0)
+            for j in range(num_gpus):
+                average_grads[i] += tower_grads[j][i]
+            average_grads[i] /= num_gpus
+        return average_grads
 
-    step_sum_op = []
-    sub_loss_names = ["fake_cls", "real_cls", "gen", "disc_real", "disc_fake"]
-    for n,l in zip(sub_loss_names, sub_losses):
-        step_sum_op.append(tf.summary.scalar(n, l))
-    step_sum_op = tf.summary.merge(step_sum_op)
-    
-    int_sum_op = []
+    sbs = FLAGS.batch_size // NUM_GPU
+    for i in range(NUM_GPU):
+        if i == 0:
+            update_collection = None
+        else:
+            update_collection = "no_ops"
+
+        with tf.device(tf.DeviceSpec(device_type="GPU", device_index=i)):
+            if FLAGS.cgan:
+                l1, l2, ot1 = tower(i, 
+                    [z_noise[sbs*i:sbs*(i+1)], c_noise[sbs*i:sbs*(i+1)]],
+                    x_real[sbs*i:sbs*(i+1)],
+                    c_label[sbs*i:sbs*(i+1)],
+                    c_noise[sbs*i:sbs*(i+1)],
+                    update_collection=update_collection)
+            else:
+                l1, l2, ot1 = tower(i,
+                    z_noise[sbs*i:sbs*(i+1)],x_real[sbs*i:sbs*(i+1)],
+                    update_collection=update_collection)
+
+        if i == 0:
+            int_sum_op = []
+
+            grid_x_fake = ops.get_grid_image_summary(gen_model.x_fake, 4)
+            int_sum_op.append(tf.summary.image("generated image", grid_x_fake))
+
+            grid_x_real = ops.get_grid_image_summary(x_real, 4)
+            int_sum_op.append(tf.summary.image("real image", grid_x_real))
+
+            step_sum_op = []
+            sub_loss_names = ["fake_cls", "real_cls", "gen", "disc_real", "disc_fake"]
+            for n,l in zip(sub_loss_names, ot1):
+                step_sum_op.append(tf.summary.scalar(n, l))
+            step_sum_op.append(tf.summary.scalar("gen", gen_model.cost))
+            step_sum_op.append(tf.summary.scalar("disc", disc_model.cost))
+
+    with tf.device(tf.DeviceSpec(device_type="GPU", device_index=0)):
+        g_grads = average_gradients(g_tower_grads)
+        d_grads = average_gradients(d_tower_grads)
+
+        gen_model.update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS, scope=gen_model.name + "/")
+        disc_model.update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS, scope=disc_model.name + "/")
+        
+        print(gen_model.update_ops)
+        print(disc_model.update_ops)
+
+        def merge_list(l1, l2):
+            return [[l1[i], l2[i]] for i in range(len(l1))]
+
+        with tf.control_dependencies(gen_model.update_ops):
+            gen_model.train_op = g_optim.apply_gradients(merge_list(g_grads, gen_model.vars))
+        with tf.control_dependencies(disc_model.update_ops):
+            disc_model.train_op = d_optim.apply_gradients(merge_list(d_grads, disc_model.vars))
     
     if FLAGS.use_cache:
         disc_fake_sample = disc_model(x_fake_sample)[0]
@@ -180,45 +272,32 @@ def main():
     else:
         sample_method = None
 
-    grid_x_fake = ops.get_grid_image_summary(gen_model.x_fake, 4)
-    int_sum_op.append(tf.summary.image("generated image", grid_x_fake))
-
-    grid_x_real = ops.get_grid_image_summary(x_real, 4)
-    int_sum_op.append(tf.summary.image("real image", grid_x_real))
-
-    int_sum_op = tf.summary.merge(int_sum_op)
-
-    ModelTrainer = trainer.base_gantrainer.BaseGANTrainer(
-        step_sum_op=step_sum_op,
-        int_sum_op=int_sum_op,
-        dataloader=dl,
-        FLAGS=FLAGS,
-        gen_model=gen_model,
-        disc_model=disc_model,
-        gen_input=gen_input,
-        x_real=x_real,
-        label=c_label,
-        sample_method=sample_method)
-
+    ModelTrainer.int_sum_op = tf.summary.merge(int_sum_op)
+    ModelTrainer.step_sum_op = tf.summary.merge(step_sum_op)
+    ModelTrainer.grad_x = grad_x
+    ModelTrainer.grad_x_name = grad_x_name
+    ModelTrainer.xs = xs
+    ModelTrainer.x_name = x_name
     #command_controller = trainer.cmd_ctrl.CMDControl(ModelTrainer)
     #command_controller.start_thread()
 
     print("=> Build train op")
-    ModelTrainer.build_train_op()
+    # ModelTrainer.build_train_op()
     
     print("=> ##### Generator Variable #####")
     gen_model.print_variables()
     print("=> ##### Discriminator Variable #####")
     disc_model.print_variables()
-    """
+    
     print("=> ##### All Variable #####")
     for v in tf.trainable_variables():
         print("%s\t\t\t\t%s" % (v.name, str(v.get_shape().as_list())))
+    
     print("=> #### Moving Variable ####")
     for v in tf.global_variables():
         if "moving" in v.name:
             print("%s\t\t\t\t%s" % (v.name, str(v.get_shape().as_list())))
-    """
+    
 
     ModelTrainer.init_training()
     ModelTrainer.train()

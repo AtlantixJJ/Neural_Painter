@@ -166,6 +166,9 @@ class BaseGANTrainer(BaseTrainer):
 
     def train_epoch(self):
         self.last_gen_loss, self.last_disc_loss = 0.0, 0.0
+        #run_options = tf.RunOptions(trace_level=tf.RunOptions.FULL_TRACE)
+        #disc_metadata = tf.RunMetadata()
+        #gen_metadata = tf.RunMetadata()
 
         print("=> Epoch %d" % self.epoch_count)
 
@@ -181,8 +184,25 @@ class BaseGANTrainer(BaseTrainer):
 
             t0 = time.clock()
 
+            print("=> forward check")
+            for i in range(len(self.xs)):
+                print("=> Check GPU %d forward" % i)
+                for j in range(len(self.xs[i])):
+                    x = self.sess.run(self.xs[i][j], self.feed)[0]
+                    l1norm = np.sum(np.abs(x))
+                    print("=> %s: %.5f" % (self.x_name[j], l1norm))
+
+            print("=> BP check")
+            for i in range(len(self.grad_x)):
+                print("=> Check GPU %d grad" % i)
+                for j in range(len(self.grad_x[i])):
+                    g = self.sess.run(self.grad_x[i][j], self.feed)[0]
+                    l1norm = np.sum(np.abs(g))
+                    print("=> %s: %.5f" % (self.grad_x_name[j], l1norm))
+
             for j in range(self.FLAGS.disc_iter):
-                self.sess.run(self.disc_model.train_op, self.feed)
+                self.sess.run(self.disc_model.train_op, self.feed)#, options=run_options, run_metadata=disc_metadata)
+                #self.summary_writer.add_run_metadata(disc_metadata, 'disc_step%d' % self.disc_tot_iter)
                 self.disc_tot_iter += 1
                 self.resample_feed()
 
@@ -196,15 +216,17 @@ class BaseGANTrainer(BaseTrainer):
             for j in range(self.FLAGS.gen_iter):
                 fake_sample, _ = self.sess.run([
                     self.gen_model.x_fake,
-                    self.gen_model.train_op], self.feed)
+                    self.gen_model.train_op], self.feed)#, options=run_options, run_metadata=gen_metadata)
+                #self.summary_writer.add_run_metadata(gen_metadata, 'gen_step%d' % self.gen_tot_iter)
                 if self.use_cache and np.random.rand() < 1.0 / self.batch_size / 2:
                     self.cache.add([fake_sample], self.global_iter)
                 self.gen_tot_iter += 1
                 self.resample_feed()
             
             if self.step_sum_op is not None:
-                sum_, _ = self.sess.run([self.step_sum_op, self.update_op], self.feed)
+                sum_ = self.sess.run(self.step_sum_op, self.feed)
                 self.summary_writer.add_summary(sum_, self.global_iter)
+
             self.global_iter += 1
             
             self.run_time += time.clock() - t0

@@ -22,8 +22,9 @@ class SequentialNN(object):
         self.reuse = False
         self.debug = debug
 
-        self.training = tf.placeholder(tf.bool, shape=[], name=name + "_training")
-        self.keep_prob = tf.placeholder(tf.float32, shape=[], name=name + "keep_prob")
+        with tf.device("/device:CPU:0"):
+            self.training = tf.placeholder(tf.bool, shape=[], name=name + "_training")
+            self.keep_prob = tf.placeholder(tf.float32, shape=[], name=name + "keep_prob")
         
         self.cost = self.extra_loss = 0
         self.sum_op = self.extra_sum_op = []
@@ -100,19 +101,13 @@ class SequentialNN(object):
         if len(self.sum_op) > 0:
             self.sum_op = tf.summary.merge(self.sum_op)
 
-        self.update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS, scope=self.name)
-
-        with tf.control_dependencies(self.update_ops):
-            print("=> Update dependency of %s:" % self.name)
-            for o in self.update_ops:
-                print(o)
-            """
-            self.train_op = adabound.AdaBoundOptimizer(
-                learning_rate=4e-4,
-                final_lr=1e-3, beta1=0.9, beta2=0.999,
-                gamma=1e-3, epsilon=1e-8).minimize(self.cost, var_list=self.vars, colocate_gradients_with_ops=True)
-            """
-            self.train_op = tf.train.AdamOptimizer(
-                learning_rate=lr,
-                beta1=0.,
-                beta2=0.9).minimize(self.cost, var_list=self.vars, colocate_gradients_with_ops=True)
+        """
+        self.train_op = adabound.AdaBoundOptimizer(
+            learning_rate=4e-4,
+            final_lr=1e-3, beta1=0.9, beta2=0.999,
+            gamma=1e-3, epsilon=1e-8).minimize(self.cost, var_list=self.vars, colocate_gradients_with_ops=True)
+        """
+        self.train_op = tf.train.AdamOptimizer(
+            learning_rate=lr,
+            beta1=0.,
+            beta2=0.9).minimize(self.cost, var_list=self.vars, colocate_gradients_with_ops=True)

@@ -1,74 +1,16 @@
 IMG_DIR = 'imgs';
 
-/*
-// stylization texture
 IMGS = [[
-    'camel_ori.png',
-    'camel_sty.png'
-  ]
-];
-*/
-
-/* // FDB train
-IMGS = [[
-  '0000_001original.png',
-  '0000_001imgtrain.png',
-  '0000_003imgtrain.png',
-  '0000_005imgtrain.png',
-  '2fdb.png',
-  '1fdb.png'
+  'pool_deconv_d_solverx_fake_500.png',
+  'pool_deconv_d_solverx_fake_2000.png',
+  'pool_deconv_d_solverx_fake_10000.png',
+  'pool_deconv_d_solverx_fake_19900.png'
   ],
   [
-    '0000_002original.png',
-    '0000_002imgtrain.png',
-    '0000_004imgtrain.png',
-    '0000_006imgtrain.png',
-    '3fdb.png',
-    '1fdb.png'
-  ],
-];
-*/
-
-/*
-IMGS = [[
-  'crop_sfn_none_composition_00014.jpg',
-  'crop_sfn_featstyle_composition_00014.jpg',
-  'crop_sfn_diff_composition_00014.jpg',
-  'crop_sfn_none_starrynight_00010.jpg',
-  'crop_sfn_featstyle_starrynight_00010.jpg',
-  'crop_sfn_diff_starrynight_00010.jpg',
-],
-  [
-    'crop_sfn_none_composition_00015.jpg',
-    'crop_sfn_featstyle_composition_00015.jpg',
-    'crop_sfn_diff_composition_00015.jpg',
-    'crop_sfn_none_starrynight_00011.jpg',
-    'crop_sfn_featstyle_starrynight_00011.jpg',
-    'crop_sfn_diff_starrynight_00011.jpg',
-  ]
-];
-*/
-
-/*
-IMGS = [[
-  'sfn_diff_starrynight1_00021.jpg',
-  'sfn_diff_candy1_00010.jpg',
-  ],
-  [
-    'sfn_diff_starrynight2_00021.jpg',
-    'sfn_diff_candy2_00010.jpg',
-  ]
-];
-*/
-
-
-IMGS = [[
-  '1.png',
-  '2.png',
-  ],
-  [
-    '3.png',
-    '4.png',
+    'pool_deconv_d_solverx_fake_400.png',
+    'pool_deconv_d_solverx_fake_1900.png',
+    'pool_deconv_d_solverx_fake_9900.png',
+    'pool_deconv_d_solverx_fake_19800.png'
   ]
 ];
 
