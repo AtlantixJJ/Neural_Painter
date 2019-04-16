@@ -18,7 +18,7 @@ class SimpleConvolutionGenerator(basic.SequentialNN):
         self.out_size = out_size
         self.map_size = map_size
         self.map_depth = map_depth
-        self.n_layer = int(np.log2(out_size)) - int(np.log2(map_size)) - 1
+        self.n_layer = int(np.log2(out_size)) - int(np.log2(map_size))
         self.cbn_project = cbn_project
         self.phase = ""
 
@@ -59,9 +59,9 @@ class SimpleConvolutionGenerator(basic.SequentialNN):
         print("=> fc1:\t" + str(x.get_shape()))
         x = self.check(x, "G/fc1")
 
-        for i in range(self.n_layer + 1):
+        for i in range(self.n_layer):
             name = "deconv%d" % (i+1)
-            x = layers.deconv2d(name, x, self.get_depth(i), 4, 2,
+            x = layers.deconv2d(name, x, self.get_depth(i+1), 4, 2,
                 self.spectral_norm, update_collection, self.reuse)
             x = cbn_partial(name + "/bn", x)
             x = tf.nn.relu(x)

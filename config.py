@@ -58,9 +58,11 @@ def hg_mask(size, n_attr):
 def simple(size, n_attr):
     gen_model = model.simple.SimpleConvolutionGenerator(
         name="G",
+        map_depth=32,
         out_size=size)
     disc_model = model.simple.SimpleConvolutionDiscriminator(
         name="D",
+        map_depth=32,
         input_size=size,
         n_attr=n_attr)
     return gen_model, disc_model
@@ -101,8 +103,21 @@ def simple_mask(size, n_attr):
     return gen_model, disc_model
 
 def deep(size, n_attr):
+    gen_model = model.deep.DeepGenerator(
+        name="G",
+        map_depth=32,
+        out_size=size)
+    disc_model = model.deep.DeepDiscriminator(
+        name="D",
+        n_attr=n_attr,
+        map_depth=32,
+        input_size=size)
+    return gen_model, disc_model
+
+def res(size, n_attr):
     gen_model = model.deep.ResidualGenerator(
         name="G",
+        n_res=2,
         out_size=size)
     disc_model = model.deep.ResidualDiscriminator(
         name="D",
