@@ -9,7 +9,7 @@ class BaseTrainer(object):
     """
     The base trainer class, should not be instantiated directly.
     """
-    def __init__(self, update_op, step_sum_op, int_sum_op, dataloader, FLAGS, is_debug=False):
+    def __init__(self, step_sum_op, int_sum_op, dataloader, FLAGS, is_debug=False):
         """
         Args:
         FLAGS   :   TF app's FLAGS.
@@ -20,7 +20,6 @@ class BaseTrainer(object):
         self.FLAGS = FLAGS
         self.num_iter = FLAGS.num_iter
         self.batch_size = FLAGS.batch_size
-        self.update_op = update_op
         self.step_sum_op = step_sum_op
         self.int_sum_op = int_sum_op
         self.is_init = False

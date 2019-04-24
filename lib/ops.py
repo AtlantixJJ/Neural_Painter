@@ -287,7 +287,7 @@ def get_grid_image_summary(img_tensor, n):
         img_list.append(tf.concat(tmp_list, axis=1))
     return tf.concat(img_list, axis=2)
 
-def spectral_normed_weight(W, u=None, num_iters=1, update_collection="spectral_norm_update_ops", with_sigma=False):
+def spectral_normed_weight(W, u=None, num_iters=1, with_sigma=False):
     def _l2normalize(v, eps=1e-4):
         return v / (tf.reduce_sum(v ** 2) ** 0.5 + eps)
 
@@ -309,22 +309,12 @@ def spectral_normed_weight(W, u=None, num_iters=1, update_collection="spectral_n
         u,
         tf.zeros(dtype=tf.float32, shape=[1, W_reshaped.shape.as_list()[0]]))
     
-    if update_collection is None:
-        # print('=> Setting update_collection to None will make u being updated every W execution. This maybe undesirable. Please consider using a update collection instead.')
-        sigma = tf.matmul(tf.matmul(v_final, W_reshaped), tf.transpose(u_final))[0, 0]
-        # sigma = tf.reduce_sum(tf.matmul(u_final, tf.transpose(W_reshaped)) * v_final)
-        W_bar = W_reshaped / sigma
-        with tf.control_dependencies([u.assign(u_final, name="assign_u")]):
-            W_bar = tf.reshape(W_bar, W_shape)
-    else:
-        sigma = tf.matmul(tf.matmul(v_final, W_reshaped), tf.transpose(u_final))[0, 0]
-        # sigma = tf.reduce_sum(tf.matmul(u_final, tf.transpose(W_reshaped)) * v_final)
-        W_bar = W_reshaped / sigma
-        W_bar = tf.reshape(W_bar, W_shape)
-        # Put NO_OPS to not update any collection. This is useful for the second call of discriminator if the update_op
-        # has already been collected on the first call.
-        if update_collection != "no_ops":
-            tf.add_to_collection(update_collection, u.assign(u_final, name="assign_u"))
+    sigma = tf.matmul(tf.matmul(v_final, W_reshaped), tf.transpose(u_final))[0, 0]
+    # sigma = tf.reduce_sum(tf.matmul(u_final, tf.transpose(W_reshaped)) * v_final)
+    W_bar = W_reshaped / sigma
+    W_bar = tf.reshape(W_bar, W_shape)
+    tf.add_to_collection(tf.GraphKeys.UPDATE_OPS, u.assign(u_final, name="assign_u"))
+
     if with_sigma:
         return W_bar, sigma
     else:

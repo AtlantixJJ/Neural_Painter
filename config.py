@@ -1,68 +1,21 @@
 import model
 
-def hg(size, n_attr):
-    if size == 64:
-        map_depth = 64
-        map_size = 4
-        n_res = 3
-        n_layer = 5
-    elif size == 128:
-        map_depth = 32
-        n_res = 2
-        map_size = 8
-        n_layer = 6
-
-    gen_model = model.simple.SimpleConvolutionGenerator(
-        name="G",
-        map_size=map_size,
-        map_depth=1024,
-        n_layer=4,
-        norm_mtd="default")
-    disc_model = model.deep.DeepDiscriminator(
-        name="D",
-        map_depth=64,
-        n_layer=n_layer,
-        n_res=n_res,
-        n_attr=n_attr,
-        norm_mtd=None)
-    return gen_model, disc_model
-
-def hg_mask(size, n_attr):
-    if size == 64:
-        map_size = 4
-        map_depth = 64
-        n_res = 3
-        n_layer = 5
-    elif size == 128:
-        map_depth = 32
-        map_size = 8
-        n_res = 2
-        n_layer = 6
-
-    gen_model = model.simple.MaskConvolutionGenerator(
-        name="G",
-        mask_num=4,
-        map_size=map_size,
-        map_depth=1024,
-        n_layer=4,
-        norm_mtd="default")
-    disc_model = model.deep.DeepDiscriminator(
-        name="D",
-        map_depth=map_depth,
-        n_res=n_res,
-        n_layer=n_layer,
-        n_attr=n_attr,
-        norm_mtd=None)
-    return gen_model, disc_model
-
 def simple(size, n_attr):
     gen_model = model.simple.SimpleConvolutionGenerator(
         name="G",
-        map_depth=32,
         out_size=size)
     disc_model = model.simple.SimpleConvolutionDiscriminator(
         name="D",
-        map_depth=32,
+        input_size=size,
+        n_attr=n_attr)
+    return gen_model, disc_model
+
+def sample(size, n_attr):
+    gen_model = model.simple.SimpleUpsampleGenerator(
+        name="G",
+        out_size=size)
+    disc_model = model.simple.SimpleDownsampleDiscriminator(
+        name="D",
         input_size=size,
         n_attr=n_attr)
     return gen_model, disc_model
@@ -76,6 +29,18 @@ def simple_debug(size, n_attr):
         name="D",
         input_size=size,
         debug=True,
+        n_attr=n_attr)
+    return gen_model, disc_model
+
+def sample_debug(size, n_attr):
+    gen_model = model.simple.SimpleUpsampleGenerator(
+        name="G",
+        debug=True,
+        out_size=size)
+    disc_model = model.simple.SimpleDownsampleDiscriminator(
+        name="D",
+        debug=True,
+        input_size=size,
         n_attr=n_attr)
     return gen_model, disc_model
 
@@ -117,7 +82,6 @@ def deep(size, n_attr):
 def res(size, n_attr):
     gen_model = model.deep.ResidualGenerator(
         name="G",
-        n_res=2,
         out_size=size)
     disc_model = model.deep.ResidualDiscriminator(
         name="D",

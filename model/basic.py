@@ -65,7 +65,7 @@ class SequentialNN(object):
             if self.name in v.name:
                 print("%s\t\t\t\t%s" % (v.name, str(v.get_shape().as_list())))
 
-    def __call__(self, input, update_collection=None):
+    def __call__(self, input):
         """
         Automatically add scope, and concat input
         """
@@ -80,7 +80,7 @@ class SequentialNN(object):
                         print("!> Input of " + self.name + " cannot be concatenated")
                 else:
                     x = input[0]
-            return self.build_inference(x, update_collection) 
+            return self.build_inference(x) 
     
     def set_reuse(self, reuse=True):
         self.reuse = True
@@ -93,21 +93,13 @@ class SequentialNN(object):
         #    self.sum_op.append(tf.summary.scalar("regularize", reg_losses))
         #self.cost += tf.identity(reg_losses, self.name + "_regularize")
 
-        if self.debug:
-            for model_var in tf.global_variables():
-                if self.name in model_var.op.name:
-                    self.sum_op.append(tf.summary.histogram(model_var.op.name, model_var))
-
         if len(self.sum_op) > 0:
             self.sum_op = tf.summary.merge(self.sum_op)
 
-        """
-        self.train_op = adabound.AdaBoundOptimizer(
-            learning_rate=4e-4,
-            final_lr=1e-3, beta1=0.9, beta2=0.999,
-            gamma=1e-3, epsilon=1e-8).minimize(self.cost, var_list=self.vars, colocate_gradients_with_ops=True)
-        """
-        self.train_op = tf.train.AdamOptimizer(
-            learning_rate=lr,
-            beta1=0.,
-            beta2=0.9).minimize(self.cost, var_list=self.vars, colocate_gradients_with_ops=True)
+        self.update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS, scope=self.name)
+
+        with tf.control_dependencies(self.update_ops):
+            self.train_op = tf.train.AdamOptimizer(
+                learning_rate=lr,
+                beta1=0.,
+                beta2=0.9).minimize(self.cost, var_list=self.vars, colocate_gradients_with_ops=True)

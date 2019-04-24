@@ -8,58 +8,39 @@ from model.simple import SimpleConvolutionDiscriminator, SimpleConvolutionGenera
 from lib import ops, files, layers, utils
 from model import basic
 
-# not good
 class ResidualGenerator(SimpleConvolutionGenerator):
     def __init__(self, **kwargs):
         super(ResidualGenerator, self).__init__(**kwargs)
     
     def build_inference(self, input, update_collection=None):
         # conditional bn: must use with conditional GAN
-        #cbn_partial = utils.partial(layers.conditional_batch_normalization, conditions=input, phase=self.phase, update_collection=update_collection, is_project=self.cbn_project, reuse=self.reuse)
+        cbn_partial = utils.partial(layers.conditional_batch_normalization, conditions=self.label, phase=self.phase, update_collection=update_collection, is_project=self.cbn_project, reuse=self.reuse)
         bn_partial = utils.partial(layers.default_batch_norm, phase=self.phase, update_collection=update_collection, reuse=self.reuse)
-        cbn_partial = bn_partial
 
         x = layers.linear("fc1", input, 
                 (self.map_size ** 2) * self.get_depth(0),
                 self.spectral_norm, update_collection, self.reuse)
         x = tf.reshape(x, [-1, self.map_size, self.map_size, self.get_depth(0)])
-        x = bn_partial('fc1/bn', x)
+        x = cbn_partial('fc1/bn', x)
         x = tf.nn.relu(x)
         print("=> fc1:\t" + str(x.get_shape()))
-
-        for i in range(self.n_layer + 1):
-            #res1
+        
+        for i in range(self.n_layer):
             name = "res%d" % (i+1)
-            x = layers.upsample_residual_block(name, x, self.get_depth(i),
+            x = layers.upsample_residual_block(name, x, self.get_depth(i+1),
                 tf.nn.relu, cbn_partial,
                 self.spectral_norm, update_collection, self.reuse)
-            x = cbn_partial(name + "/bn", x)
-            x = tf.nn.relu(x)
             print("=> " + name + ":\t" + str(x.get_shape()))
 
-            #res2
-            """
-            name = "res%d" % (2*i+1)
-            x = layers.upsample_residual_block(name, x, self.get_depth(i),
-                tf.nn.relu, cbn_partial,
-                self.spectral_norm, update_collection, self.reuse)
-            print("=> " + name + ":\t" + str(x.get_shape()))
-            name = "res%d" % (2*i+2)
-            x = layers.simple_residual_block(name, x, 3,
-                tf.nn.relu, cbn_partial,
-                self.spectral_norm, update_collection, self.reuse)
-            print("=> " + name + ":\t" + str(x.get_shape()))
-            """
-            
         x = bn_partial("out/bn", x)
         x = tf.nn.relu(x)
         x = layers.conv2d("conv1", x, self.out_dim, self.ksize, 1, self.spectral_norm, update_collection, self.reuse)
 
         self.out = tf.nn.tanh(x)
+        print("=> gen:\t" + str(self.out.get_shape()))
 
         return self.out
 
-# not good
 class ResidualDiscriminator(SimpleConvolutionDiscriminator):
     def __init__(self, **kwargs):
         super(ResidualDiscriminator, self).__init__(**kwargs)
@@ -77,48 +58,31 @@ class ResidualDiscriminator(SimpleConvolutionDiscriminator):
 
         self.mid_layers = self.n_layer // 2 + 1
 
-        for i in range(self.n_layer + 1):
-            # res 1
+        for i in range(self.n_layer):
             name = "res%d" % (i+1)
-            x = layers.downsample_residual_block(name, x, self.get_depth(i),
+            x = layers.downsample_residual_block(name, x, self.get_depth(i+1),
                 layers.LeakyReLU, bn_partial,
                 self.spectral_norm, update_collection, self.reuse)
-            x = bn_partial(name + "/bn", x)
-            x = layers.LeakyReLU(x)
             print("=> " + name + ":\t" + str(x.get_shape()))
-
-            # res 2
-            """
-            name = "res%d" % (2*i+1)
-            x = layers.downsample_residual_block(name, x, self.get_depth(i),
-                layers.LeakyReLU, bn_partial,
-                self.spectral_norm, update_collection, self.reuse)
-            x = bn_partial(name + "/bn", x)
-            x = layers.LeakyReLU(x)
-            print("=> " + name + ":\t" + str(x.get_shape()))
-
-            name = "res%d" % (2*i+2)
-            x = layers.simple_residual_block(name, x, 3,
-                layers.LeakyReLU, bn_partial,
-                self.spectral_norm, update_collection, self.reuse)
-            x = bn_partial(name + "/bn", x)
-            x = layers.LeakyReLU(x)
-            print("=> " + name + ":\t" + str(x.get_shape()))
-            """
 
         x = layers.LeakyReLU(x)
-        x = tf.reduce_mean(x, axis=[1, 2])
-        print("=> disc:\t" + str(x.get_shape()))
+        h = tf.reduce_mean(x, axis=[1, 2])
+        print("=> gap:\t" + str(h.get_shape()))
 
-        self.disc_out = layers.linear("disc/fc", x, 1,
+        x = layers.linear("disc/fc", h, 1,
                         self.spectral_norm, update_collection, self.reuse)
 
-        self.cls_out = layers.linear("class/fc", x, self.n_attr, 
-                    self.spectral_norm, update_collection, self.reuse)
+        # class conditional info
+        if self.label is not None:
+            dim = h.get_shape()[-1]
+            emb_label = layers.linear("class/emd", self.label, dim,
+                self.spectral_norm, update_collection, self.reuse)
+            delta = tf.reduce_sum(h * emb_label, axis=[1], keepdims=True)
 
+        self.disc_out = x + delta
         print("=> disc:\t" + str(self.disc_out.get_shape()))
 
-        return self.disc_out, self.cls_out
+        return self.disc_out
 
 class DeepGenerator(SimpleConvolutionGenerator):
     def __init__(self, n_res=2, **kwargs):

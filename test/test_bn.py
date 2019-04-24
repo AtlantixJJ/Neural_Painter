@@ -1,7 +1,11 @@
 """
 GAN Trainer Family.
-example:
+Common options:
+--model_name simple_ian_mnist1 : [network structure name]_[loss family name]_[dataset name]_[version number]
+--cgan  : if to use labels in GAN (that is ACGAN)
 """
+import sys
+sys.path.insert(0, '.')
 import matplotlib
 matplotlib.use("agg") # normal setting
 import tensorflow as tf
@@ -33,10 +37,12 @@ tf.app.flags.DEFINE_string("train_dir", "", "log dir")
 
 # ----- model type flags ------ #
 
-tf.app.flags.DEFINE_boolean("cgan", True, "If to use ACGAN")
+tf.app.flags.DEFINE_boolean("cgan", False, "If to use ACGAN")
 tf.app.flags.DEFINE_integer("img_size", 128, "The size of input image, 64 | 128")
 tf.app.flags.DEFINE_string("model_name", "simple", "model type: simple | simple_mask | hg | hg_mask")
 tf.app.flags.DEFINE_string("data_dir", "/home/atlantix/data/celeba/img_align_celeba.zip", "data path")
+tf.app.flags.DEFINE_string("g_bn", "cbn", "cbn|bn|none")
+tf.app.flags.DEFINE_string("d_bn", "none", "cbn|bn|none")
 
 # ------ train control flags ----- #
 
@@ -44,7 +50,7 @@ tf.app.flags.DEFINE_boolean("use_cache", False, "If to use cache to prevent cact
 tf.app.flags.DEFINE_integer("gpu", 4, "which gpu to use")
 tf.app.flags.DEFINE_float("g_lr", 1e-4, "learning rate")
 tf.app.flags.DEFINE_float("d_lr", 4e-4, "learning rate")
-tf.app.flags.DEFINE_integer("batch_size", 128, "training batch size")
+tf.app.flags.DEFINE_integer("batch_size", 64, "training batch size")
 tf.app.flags.DEFINE_integer("num_iter", 200000, "training iteration")
 tf.app.flags.DEFINE_integer("dec_iter", 100000, "training iteration")
 tf.app.flags.DEFINE_integer("disc_iter", 1, "discriminator training iter")
@@ -59,6 +65,11 @@ os.environ["CUDA_VISIBLE_DEVICES"] = str(FLAGS.gpu)
 
 def main():
     size = FLAGS.img_size
+
+    if len(FLAGS.train_dir) < 1:
+        FLAGS.train_dir = os.path.join("logs", FLAGS.model_name + "_" + FLAGS.g_bn + "_" + str(FLAGS.img_size))
+        if FLAGS.cgan:
+            FLAGS.train_dir += "_cgan"
 
     if FLAGS.cgan:
         # the label file is npy format
@@ -100,6 +111,8 @@ def main():
 
     # look up the config function from lib.config module
     gen_model, disc_model = getattr(config, FLAGS.model_name)(FLAGS.img_size, dataset.class_num)
+    gen_model.norm_mtd = FLAGS.g_bn
+    disc_model.norm_mtd = FLAGS.d_bn
     
     gen_model.label = c_noise
     x_fake = gen_model(gen_input)
@@ -178,6 +191,7 @@ def main():
     print("=> #### Discriminator update dependency ####")
     for v in disc_model.update_ops:
         print("%s" % (v.name))
+
     ModelTrainer.init_training()
     ModelTrainer.train()
 

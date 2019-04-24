@@ -394,12 +394,17 @@ class FileDataset():
         self.file_num = len(self.files)
 
         # label
-        label = np.load(npy_dir)
-        label_t = tf.constant(label)
-        self.class_num = label.shape[-1]
-
-        dataset = tf.data.Dataset.from_tensor_slices((filelist_t, label_t))
+        if npy_dir is not None:
+            label = np.load(npy_dir)
+            label_t = tf.constant(label)
+            self.class_num = label.shape[-1]
+            dataset = tf.data.Dataset.from_tensor_slices((filelist_t, label_t))
+        else:
+            self.class_num = -1
+            dataset = tf.data.Dataset.from_tensor_slices((filelist_t, tf.constant(np.zeros((self.file_num,)))))
+        
         self.dataset = dataset.map(self._parse_function)
+
 
     def read_image_from_zip(self, filename):
         """
@@ -423,7 +428,11 @@ class FileDataset():
         x = tf.image.random_contrast(x, 0.9, 1.1)
         x = tf.image.random_flip_left_right(x)
         x = tf.clip_by_value(x * 2 - 1, -1.0, 1.0)
-        return x, label
+
+        if self.class_num > 0:
+            return x, label
+        else:
+            return x
 
 class CelebADataset(FileDataset):
     def __init__(self, data_path, img_size=(64, 64), npy_dir=None):

@@ -202,9 +202,8 @@ class BaseGANTrainer(BaseTrainer):
                 self.gen_tot_iter += 1
                 self.resample_feed()
             
-            if self.step_sum_op is not None:
-                sum_, _ = self.sess.run([self.step_sum_op, self.update_op], self.feed)
-                self.summary_writer.add_summary(sum_, self.global_iter)
+            sum_ = self.sess.run(self.step_sum_op, self.feed)
+            self.summary_writer.add_summary(sum_, self.global_iter)
             self.global_iter += 1
             
             self.run_time += time.clock() - t0
