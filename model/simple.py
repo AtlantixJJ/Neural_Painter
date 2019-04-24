@@ -322,7 +322,10 @@ class SimpleConvolutionDiscriminator(basic.SequentialNN):
             delta = 0
         """
 
-        return self.disc_out, self.cls_out
+        if self.label is not None:
+            return self.disc_out, self.cls_out
+        else:
+            return self.disc_out, 0
 
 class SimpleDownsampleDiscriminator(SimpleConvolutionDiscriminator):
     def __init__(self, **kwargs):
@@ -375,7 +378,7 @@ class SimpleDownsampleDiscriminator(SimpleConvolutionDiscriminator):
             delta = 0
         """
 
-        self.disc_out = x
+        # There is a self.disc_out = x. Effect not tested
 
         if self.label is not None:
             return self.disc_out, self.cls_out

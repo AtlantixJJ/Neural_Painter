@@ -305,7 +305,7 @@ def subpixel_conv(name, input, output_dim, filter_size=3, spectral=False, reuse=
 
 def simple_residual_block(name, x, filter_size=3,
     activation_fn=tf.nn.relu, norm_fn=None,
-    spectral=False, update_collection=None, reuse=False):
+    spectral=False, reuse=False):
     """
     identity + 2 conv with same depth, bottleneck
     """
@@ -316,12 +316,12 @@ def simple_residual_block(name, x, filter_size=3,
     x = norm_fn(name + "/bn1", x)
     x = activation_fn(x)
     x = conv2d(name + "/conv1", x, input_dim // 2, filter_size, 1,
-        spectral=spectral, update_collection=update_collection, reuse=reuse)
+        spectral=spectral, reuse=reuse)
 
     x = norm_fn(name + "/bn2", x)
     x = activation_fn(x)
     x = conv2d(name + "/conv2", x, input_dim, filter_size, 1,
-        spectral=spectral, update_collection=update_collection, reuse=reuse)
+        spectral=spectral, reuse=reuse)
 
     return x_skip + x
 
@@ -343,29 +343,29 @@ def upsample_residual_block(name, x, dim, activation_fn=tf.nn.relu, norm_fn=None
 
         x = norm_fn("bn2", x)
         x = activation_fn(x)
-        x = conv2d("conv2", x, dim, 3, 1, spectral)
+        x = conv2d("conv2", x, dim, 3, 1, spectral, reuse)
 
     return x + x_skip
 
 def downsample_residual_block(name, x, dim, activation_fn=tf.nn.relu, norm_fn=None,
-    spectral=False, update_collection=None, reuse=False):
+    spectral=False, reuse=False):
     with tf.variable_scope(name, reuse=reuse):
         c = x.get_shape()[-1]
 
         # enhance identity
         if c != dim:
-            x_skip = conv2d("skip/conv", x, dim, 1, 1, spectral, update_collection, reuse)
+            x_skip = conv2d("skip/conv", x, dim, 1, 1, spectral, reuse)
             x_skip = tf.nn.avg_pool(x_skip, 2, 2, "VALID")
         else:
             x_skip = tf.nn.avg_pool(x, 2, 2, "VALID")
 
         x = norm_fn("bn1", x)
         x = activation_fn(x)
-        x = conv2d("conv1", x, dim // 2, 3, 1, spectral, update_collection, reuse)
+        x = conv2d("conv1", x, dim // 2, 3, 1, spectral, reuse)
 
         x = norm_fn("bn2", x)
         x = activation_fn(x)
-        x = conv2d("conv2", x, dim, 3, 1, spectral, update_collection)
+        x = conv2d("conv2", x, dim, 3, 1, spectral, reuse)
         x = tf.nn.avg_pool(x, 2, 2, "VALID")
 
     return x + x_skip
