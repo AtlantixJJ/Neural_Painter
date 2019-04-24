@@ -53,6 +53,12 @@ os.environ["CUDA_VISIBLE_DEVICES"] = str(FLAGS.gpu)
 def main():
     size = FLAGS.img_size
 
+    if len(FLAGS.train_dir) < 1:
+        # if the train dir is not set, then automatically decide one
+        FLAGS.train_dir = os.path.join("logs", FLAGS.model_name + str(FLAGS.img_size))
+        if FLAGS.cgan:
+            FLAGS.train_dir += "_cgan"
+
     if FLAGS.cgan:
         # the label file should be npy format
         npy_dir = FLAGS.data_dir.replace(".zip", "") + '.npy'
