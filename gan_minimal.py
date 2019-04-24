@@ -1,6 +1,7 @@
 """
 GAN Trainer Family.
 example:
+python gan_minimal.py --gpu 0 --model_name sample --cgan
 """
 import matplotlib
 matplotlib.use("agg") # normal setting
@@ -9,21 +10,15 @@ import time, pprint, os
 import numpy as np
 from scipy import misc
 
-# Use the dataloader of pytorch
-from torch.utils.data import DataLoader
-
 # modules in current project
 import config, model, loss, trainer
 from lib import utils, dataloader, ops
 # pytorch segmentation related utils
 from lib.ptseg import *
 
-# The save dir of best model
-BEST_MODEL = "success/goodmodel_dragan_anime1"
-
 # ------ control flags ----- #
 
-tf.app.flags.DEFINE_string("rpath", BEST_MODEL, "The path to npz param, for reloading")
+tf.app.flags.DEFINE_string("rpath", "./", "The path to npz param, for reloading")
 tf.app.flags.DEFINE_boolean("debug", False, "Whether to show debug messages")
 tf.app.flags.DEFINE_boolean("reload", False, "If to reload from npz param. Incompatible with --resume.")
 tf.app.flags.DEFINE_boolean("resume", False, "If to resume from previous training. Incompatible with --resume.")
@@ -51,9 +46,7 @@ tf.app.flags.DEFINE_integer("disc_iter", 1, "discriminator training iter")
 tf.app.flags.DEFINE_integer("gen_iter", 1, "generative training iter")
 
 FLAGS = tf.app.flags.FLAGS
-TFLAGS = {}
 
-NUM_WORKER = FLAGS.num_worker
 os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
 os.environ["CUDA_VISIBLE_DEVICES"] = str(FLAGS.gpu)
 
@@ -61,7 +54,7 @@ def main():
     size = FLAGS.img_size
 
     if FLAGS.cgan:
-        # the label file is npy format
+        # the label file should be npy format
         npy_dir = FLAGS.data_dir.replace(".zip", "") + '.npy'
     else:
         npy_dir = None
@@ -71,6 +64,7 @@ def main():
             img_size=(size, size),
             npy_dir=npy_dir)
     elif "cityscapes" in FLAGS.data_dir:
+        # outdated
         augmentations = Compose([RandomCrop(size * 4), Scale(size * 2), RandomRotate(10), RandomHorizontallyFlip(), RandomSizedCrop(size)])
         dataset = dataloader.cityscapesLoader(FLAGS.data_dir,
             is_transform=True,
