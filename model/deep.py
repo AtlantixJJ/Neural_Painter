@@ -63,6 +63,7 @@ class ResidualDiscriminator(SimpleConvolutionDiscriminator):
                 self.spectral_norm, self.reuse)
             print("=> " + name + ":\t" + str(x.get_shape()))
 
+        x = bn_partial("gap/bn", x)
         x = layers.LeakyReLU(x)
         h = tf.reduce_mean(x, axis=[1, 2])
         print("=> gap:\t" + str(h.get_shape()))

@@ -48,18 +48,6 @@ class BaseTrainer(object):
             self.reload()
         elif self.FLAGS.resume:
             self.saver.restore(self.sess, self.FLAGS.train_dir)
-            
-    def build_train_op(self):
-        """
-        Build training op. When there is multiple model, building op need to be customized.
-        """
-        pass
-
-    def decode_placeholders(self):
-        """
-        Decode according to specific trainer
-        """
-        pass
 
     def reset_train_state(self):
         """
@@ -108,37 +96,3 @@ class BaseTrainer(object):
                 self.train_epoch()
         
         self.finished = True
-    
-    def train_epoch(self):
-        """
-        Custom w.r.t models and data sampler.
-        """
-        pass
-    
-    def schedule_lr(self):
-        """
-        Schedule learning rate and put it into self.feed.
-        """
-        pass
-
-    def schedule_weight(self):
-        """
-        Schedule weight and put it into self.feed.
-        """
-        pass
-    
-    def make_feed(self, sample):
-        """
-        Make feed dic from sample.
-        """
-        pass
-    
-    def make_fixed_feed(self):
-        """
-        Make fixed feed dic for intervaled summary.
-        """
-        pass
-    
-    def resume(self):
-        # TODO: resume should happen before graph construction
-        pass

@@ -8,8 +8,6 @@ matplotlib.use("agg") # normal setting
 import tensorflow as tf
 import time, pprint, os
 import numpy as np
-from scipy import misc
-
 # modules in current project
 import config, model, loss, trainer
 from lib import utils, dataloader, ops

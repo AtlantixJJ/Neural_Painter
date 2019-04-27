@@ -32,7 +32,7 @@ class SimpleConvolutionGenerator(basic.SequentialNN):
         """
         Given the layer index (start from 0 to self.n_layer), return the map depth
         """
-        return min(1024, self.map_depth * (2 ** (self.n_layer - i)))
+        return min(2048, self.map_depth * (2 ** (self.n_layer - i)))
 
     def set_phase(self, phase):
         """
@@ -251,7 +251,7 @@ class SimpleConvolutionDiscriminator(basic.SequentialNN):
         """
         Given the layer index (start from 0 to self.n_layer), return the map depth
         """
-        return min(1024, self.map_depth * (2 ** i))
+        return min(2048, self.map_depth * (2 ** i))
 
     def get_discriminator_batchnorm(self):
         """
@@ -350,16 +350,15 @@ class SimpleDownsampleDiscriminator(SimpleConvolutionDiscriminator):
             x = layers.conv2d(name, x,
                 self.get_depth(i+1), 3, 1,
                 self.spectral_norm, self.reuse)
-            x = bn_partial("bn%d" % (i+2), x)
             x = tf.nn.avg_pool(x, 2, 2, "VALID")
+            x = bn_partial("bn%d" % (i+2), x)
             x = layers.LeakyReLU(x)
             print("=> " + name + ":\t" + str(x.get_shape()))
             x = self.check(x, "D/" + name + "/"  + self.phase)
         
         h = tf.reduce_mean(x, axis=[1, 2])
-        print("=> disc/gap:\t" + str(h.get_shape()))
-
         h = self.check(h, "D/gap/" + self.phase)
+        print("=> disc/gap:\t" + str(h.get_shape()))
 
         self.disc_out = layers.linear("disc/fc", h, 1,
                         0, self.reuse)
