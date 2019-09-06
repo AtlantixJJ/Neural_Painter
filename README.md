@@ -4,7 +4,7 @@ Visual language is an important part of human communication, however most of peo
 
 # Demo: Anime face editing
 
-Online demo is now unavailable, but there are demo videos in the project blog ![page](https://atlantixjj.github.io/jekyll/update/2018/09/01/NeuralPainter.html).
+Online demo is now unavailable, but there are demo videos in the project blog [page](https://atlantixjj.github.io/jekyll/update/2018/09/01/NeuralPainter.html).
 
 ## Running
 
