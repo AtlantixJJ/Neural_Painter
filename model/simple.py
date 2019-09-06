@@ -253,33 +253,22 @@ class SimpleConvolutionDiscriminator(basic.SequentialNN):
         """
         return min(2048, self.map_depth * (2 ** i))
 
-    def get_discriminator_batchnorm(self):
-        """
-        Define the bn function here, because bn is quite different.
-        This should return a partial function with (name, x) as argument and other argument filled
-        """
-
-        def id_(name, x): return x
-
-        def caffe_batch_norm_(name, x):
-            return layers.caffe_batch_norm(name, x, phase=self.phase, training=self.training, reuse=self.reuse)
-
-        def simple_batch_norm_(name, x):
-            return layers.simple_batch_norm(name, x, phase=self.phase, training=self.training, reuse=self.reuse)
-
-        def default_(name, x):
-            return layers.default_batch_norm(name, x, phase=self.phase, reuse=self.reuse)
-
-        def cbn_(name, x):
-            return layers.conditional_batch_normalization(name, x, self.label, self.phase, is_project=True, reuse=self.reuse)
-
-        if self.norm_mtd == "cbn": return cbn_
-        elif self.norm_mtd == "bn": return default_
-        elif self.norm_mtd == "none": return id_
+    def get_batchnorm(self):
+        if self.norm_mtd == "cbn":
+            # conditional bn: must use with conditional GAN
+            return utils.partial(layers.conditional_batch_normalization, conditions=self.label, training=self.training, phase=self.phase, is_project=True, reuse=self.reuse)
+        elif self.norm_mtd == "bn":
+            return utils.partial(layers.default_batch_norm, training=self.training, phase=self.phase, reuse=self.reuse)
+        elif self.norm_mtd == "default":
+            def default_(name, x):
+                return tf.layers.batch_normalization(x, training=self.training, name=name, reuse=self.reuse)
+            return default_
+        elif self.norm_mtd == "none":
+            return lambda name, x: x
 
     def build_inference(self, input):
         # usually discriminator do not use bn
-        bn_partial = self.get_discriminator_batchnorm()
+        bn_partial = self.get_batchnorm()
 
         x = tf.identity(input)
         x = self.check(x, "D/input/" + self.phase)
@@ -333,7 +322,7 @@ class SimpleDownsampleDiscriminator(SimpleConvolutionDiscriminator):
     
     def build_inference(self, input, update_collection=None):
         # usually discriminator do not use bn
-        bn_partial = self.get_discriminator_batchnorm()
+        bn_partial = self.get_batchnorm()
 
         x = tf.identity(input)
         x = self.check(x, "D/input/" + self.phase)

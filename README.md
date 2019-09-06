@@ -2,9 +2,9 @@
 
 Visual language is an important part of human communication, however most of people are not skilled at expressing themselves visually. This project aims to bridge the expertise gap of drawing by using interactive generation techniques.
 
-# Online Demo: Anime face editing
+# Demo: Anime face editing
 
-Click [here](http://neuralpainter.club:2333).
+Online demo is now unavailable, but there are demo videos in the project blog ![page](https://atlantixjj.github.io/jekyll/update/2018/09/01/NeuralPainter.html).
 
 ## Running
 
